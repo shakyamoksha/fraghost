@@ -16,7 +16,7 @@ export class AuthError extends Error {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
-  if (password) headers.set("X-Cairn-Password", password);
+  if (password) headers.set("X-Fraghost-Password", password);
   const response = await fetch(path, { ...init, headers });
   if (response.status === 401) throw new AuthError();
   const text = await response.text();
@@ -53,7 +53,7 @@ export const api = {
   refreshRss: () => request<{ added: number }>("/api/rss/refresh", { method: "POST", body: "{}" }),
   exportTorrent: async (id: string, name: string) => {
     const headers = new Headers();
-    if (password) headers.set("X-Cairn-Password", password);
+    if (password) headers.set("X-Fraghost-Password", password);
     const response = await fetch(`/api/torrents/${encodeURIComponent(id)}/export`, { headers });
     if (response.status === 401) throw new AuthError();
     if (!response.ok) {

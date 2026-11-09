@@ -13,10 +13,10 @@ from .update import updates
 MAX_BODY = 64 * 1024 * 1024
 FALLBACK = """<!doctype html>
 <meta charset="utf-8">
-<title>Cairn</title>
+<title>fraghost</title>
 <body style="margin:0;background:#12130f;color:#f3efe4;font:16px Segoe UI,sans-serif">
 <main style="max-width:36rem;margin:12vh auto;padding:0 24px">
-<h1 style="font-weight:560">Cairn</h1>
+<h1 style="font-weight:560">fraghost</h1>
 <p>The interface has not been built yet.</p>
 <p>From the <code>ui</code> folder, run <code>npm install</code> and then <code>npm run build</code>.</p>
 </main>
@@ -99,7 +99,12 @@ def _make_handler(engine, dist_dir: Path | None):
                 return True
             import hmac
 
-            got = self.headers.get("X-Cairn-Password") or self.headers.get("X-Shakya-Password") or ""
+            got = (
+                self.headers.get("X-Fraghost-Password")
+                or self.headers.get("X-Cairn-Password")
+                or self.headers.get("X-Shakya-Password")
+                or ""
+            )
             return hmac.compare_digest(got, expected)
 
         def _api(self, method: str, parts: list[str], query: dict):
@@ -246,7 +251,10 @@ def _make_handler(engine, dist_dir: Path | None):
             origin = self.headers.get("Origin") or ""
             if origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost"):
                 self.send_header("Access-Control-Allow-Origin", origin)
-                self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Cairn-Password, X-Shakya-Password")
+                self.send_header(
+                    "Access-Control-Allow-Headers",
+                    "Content-Type, X-Fraghost-Password, X-Cairn-Password, X-Shakya-Password",
+                )
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
                 self.send_header("Vary", "Origin")
             if filename:

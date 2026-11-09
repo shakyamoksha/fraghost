@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Cache = Join-Path $PSScriptRoot "cache"
-$Stage = Join-Path $PSScriptRoot "stage\Cairn"
+$Stage = Join-Path $PSScriptRoot "stage\fraghost"
 $Out = Join-Path $PSScriptRoot "out"
 New-Item -ItemType Directory -Force -Path $Cache, $Out | Out-Null
 if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
@@ -46,10 +46,8 @@ if ($LASTEXITCODE -ne 0) { throw "Dependencies could not be installed" }
 Copy-Item -Recurse (Join-Path $Root "shakya") (Join-Path $Stage "shakya")
 Get-ChildItem -Recurse -Directory -Filter "__pycache__" (Join-Path $Stage "shakya") | Remove-Item -Recurse -Force
 $RepoLiteral = $UpdateRepo.Replace("\", "\\").Replace('"', '\"')
-@"
-BUILD = $BuildNumber
-UPDATE_REPO = "$RepoLiteral"
-"@ | Set-Content -Encoding utf8 -Path (Join-Path $Stage "shakya\build_info.py")
+$BuildInfo = "BUILD = $BuildNumber`r`nUPDATE_REPO = `"$RepoLiteral`"`r`n"
+[System.IO.File]::WriteAllText((Join-Path $Stage "shakya\build_info.py"), $BuildInfo)
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Stage "ui\dist") | Out-Null
 Copy-Item -Recurse (Join-Path $Root "ui\dist\*") (Join-Path $Stage "ui\dist")
@@ -58,7 +56,7 @@ Copy-Item -Recurse (Join-Path $Root "ui\dist\*") (Join-Path $Stage "ui\dist")
 @echo off
 cd /d "%~dp0"
 start "" "%~dp0pythonw.exe" -m shakya
-"@ | Set-Content -Encoding ascii -Path (Join-Path $Stage "Cairn.cmd")
+"@ | Set-Content -Encoding ascii -Path (Join-Path $Stage "fraghost.cmd")
 
 $Version = "0.1.0"
 $VersionJson = @{
@@ -82,4 +80,4 @@ if (-not $Iscc) {
 
 & $Iscc (Join-Path $PSScriptRoot "cairn.iss")
 if ($LASTEXITCODE -ne 0) { throw "The installer compiler failed" }
-Write-Host "Installer: $(Join-Path $Out 'CairnSetup.exe')"
+Write-Host "Installer: $(Join-Path $Out 'fraghost-setup.exe')"

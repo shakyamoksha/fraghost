@@ -30,7 +30,7 @@ def main() -> None:
     engine.settings["lsd"] = False
     engine.settings["upnp"] = False
     engine.settings["natpmp"] = False
-    engine.settings["listen_port"] = 0
+    engine.settings["listen_port"] = 47621
     engine.settings["save_path"] = str(Path(home) / "downloads")
     engine.start()
     try:
@@ -139,7 +139,7 @@ def main() -> None:
         restored.settings["upnp"] = False
         restored.settings["natpmp"] = False
         restored.settings["lsd"] = False
-        restored.settings["listen_port"] = 0
+        restored.settings["listen_port"] = 47622
         restored.start()
         try:
             deadline = time.time() + 3

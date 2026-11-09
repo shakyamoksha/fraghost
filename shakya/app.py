@@ -19,11 +19,13 @@ def _bundle_root() -> Path:
 
 ROOT = _bundle_root()
 DIST = ROOT / "ui" / "dist"
+_ICON = Path(__file__).resolve().parent / "assets" / "fraghost.ico"
 _INSTALL_MUTEX = None
+APP_NAME = "fraghost"
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="shakya", description="Cairn BitTorrent client")
+    parser = argparse.ArgumentParser(prog="fraghost", description="fraghost BitTorrent client")
     parser.add_argument("--server", action="store_true", help="Serve the local UI without opening a window")
     parser.add_argument("--dev", action="store_true", help="Open the Vite dev server at http://127.0.0.1:5173")
     parser.add_argument("--port", type=int, default=47371)
@@ -31,12 +33,13 @@ def main(argv: list[str] | None = None) -> None:
 
     global _INSTALL_MUTEX
     if sys.platform == "win32":
-        _INSTALL_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "CairnSingleton")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_NAME)
+        _INSTALL_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "fraghostSingleton")
 
     engine = Engine()
     engine.start()
     httpd, url = serve(engine, port=args.port, dist_dir=DIST)
-    print(f"Cairn {__version__}", flush=True)
+    print(f"{APP_NAME} {__version__}", flush=True)
     print(f"Local UI  {url}", flush=True)
     if args.dev:
         print("Dev UI    http://127.0.0.1:5173/", flush=True)
@@ -108,10 +111,10 @@ def main(argv: list[str] | None = None) -> None:
             shell.drag_to(float(screen_x or 0), float(screen_y or 0), float(ratio_x or 0), float(grab_y or 0))
 
         def notify_update(self, title, body):
-            shell.notify(str(title or "Cairn"), str(body or ""))
+            shell.notify(str(title or APP_NAME), str(body or ""))
 
     window = webview.create_window(
-        "Cairn",
+        APP_NAME,
         target,
         js_api=Desktop(),
         width=1280,
@@ -146,7 +149,7 @@ def main(argv: list[str] | None = None) -> None:
     except Exception:
         pass
     try:
-        webview.start()
+        webview.start(icon=str(_ICON) if _ICON.is_file() else None)
     finally:
         shell.dispose_tray()
         engine.shutdown()
@@ -176,7 +179,7 @@ def _window_color() -> str:
 
 
 class _Shell:
-    """Frameless window controls and a tray icon so closing the window leaves Cairn running."""
+    """Frameless window controls and a tray icon so closing the window leaves fraghost running."""
 
     def __init__(self) -> None:
         self.window = None
@@ -200,35 +203,37 @@ class _Shell:
             return
         try:
             from System import Action
-            from System.Drawing import Bitmap, Color, Graphics, Icon, SolidBrush
-            from System.Drawing.Drawing2D import SmoothingMode
+            from System.Drawing import Icon
             from System.Windows.Forms import ContextMenuStrip, NotifyIcon, ToolStripMenuItem
         except Exception as exc:
             print(f"Tray icon is unavailable ({exc}).", flush=True)
             return
 
         def install() -> None:
-            bitmap = Bitmap(32, 32)
-            canvas = Graphics.FromImage(bitmap)
-            canvas.SmoothingMode = SmoothingMode.AntiAlias
-            canvas.Clear(Color.FromArgb(0, 0, 0, 0))
-            brush = SolidBrush(Color.FromArgb(255, 53, 132, 228))
-            canvas.FillEllipse(brush, 10, 3, 12, 8)
-            canvas.FillEllipse(brush, 6, 11, 20, 9)
-            canvas.FillEllipse(brush, 3, 20, 26, 9)
-            canvas.Dispose()
-            brush.Dispose()
-            icon = Icon.FromHandle(bitmap.GetHicon()).Clone()
-            form.Icon = icon
+            from System.Drawing import Size
+
+            if not _ICON.is_file():
+                raise FileNotFoundError(_ICON)
+            # Icon(path) owns its handle. FromHandle().Clone() does not, and the
+            # taskbar then shows a blank button once that handle is destroyed.
+            icon = Icon(str(_ICON), Size(256, 256))
+            small = Icon(str(_ICON), Size(16, 16))
+            _assign_window_icon(form, icon, small)
             menu = ContextMenuStrip()
-            show_item = ToolStripMenuItem("Show Cairn")
+            show_item = ToolStripMenuItem("Show fraghost")
             quit_item = ToolStripMenuItem("Quit")
 
             def on_show(_sender, _args) -> None:
-                self.show()
+                try:
+                    self.show()
+                except Exception as exc:
+                    print(f"Could not show the window ({exc}).", flush=True)
 
             def on_quit(_sender, _args) -> None:
-                self.quit()
+                try:
+                    self.quit()
+                except Exception as exc:
+                    print(f"Could not quit ({exc}).", flush=True)
 
             show_item.Click += on_show
             quit_item.Click += on_quit
@@ -261,24 +266,32 @@ class _Shell:
             menu.Opened += on_opened
             on_opening(None, None)
             tray = NotifyIcon()
-            tray.Icon = icon
-            tray.Text = "Cairn"
+            tray.Icon = small
+            tray.Text = APP_NAME
             tray.Visible = True
             tray.ContextMenuStrip = menu
 
             def on_double(_sender, _args) -> None:
-                self.show()
+                try:
+                    self.show()
+                except Exception as exc:
+                    print(f"Could not show the window ({exc}).", flush=True)
 
             def on_balloon(_sender, _args) -> None:
-                self.show()
+                try:
+                    self.show()
+                except Exception as exc:
+                    print(f"Could not show the window ({exc}).", flush=True)
 
             tray.DoubleClick += on_double
             tray.BalloonTipClicked += on_balloon
             form.MinimizeBox = True
             form.ShowInTaskbar = True
-            self._kept.append(_enable_taskbar_toggle(form))
+            hook = _enable_taskbar_toggle(form)
+            _assign_window_icon(form, icon, small)
+            self._kept.append(hook)
             self._tray = tray
-            self._kept.extend([bitmap, icon, menu, show_item, quit_item, tray, menu.Font])
+            self._kept.extend([icon, small, menu, show_item, quit_item, tray, menu.Font])
             self.tray_ready = True
 
         try:
@@ -327,7 +340,7 @@ class _Shell:
                 return
             from System.Windows.Forms import ToolTipIcon
 
-            tray.BalloonTipTitle = (title or "Cairn")[:63]
+            tray.BalloonTipTitle = (title or APP_NAME)[:63]
             tray.BalloonTipText = (body or "")[:255]
             tray.BalloonTipIcon = ToolTipIcon.Info
             tray.ShowBalloonTip(8000)
@@ -336,12 +349,15 @@ class _Shell:
 
     def show(self) -> None:
         def go() -> None:
+            from System.Windows.Forms import FormWindowState
+
             form = self._form()
             if form is None:
                 return
+            form.ShowInTaskbar = True
             form.Show()
             if form.WindowState == FormWindowState.Minimized:
-                ctypes.windll.user32.ShowWindow(int(form.Handle.ToInt64()), 9)
+                form.WindowState = FormWindowState.Normal
             form.Activate()
 
         self._run(go)
@@ -512,6 +528,17 @@ class _RECT(ctypes.Structure):
 
 class _NCCALCSIZE_PARAMS(ctypes.Structure):
     _fields_ = (("rgrc", _RECT * 3), ("lppos", ctypes.c_void_p))
+
+
+def _assign_window_icon(form, large, small) -> None:
+    """Put the icon on the window and on both taskbar sizes. The objects must stay referenced."""
+    form.Icon = large
+    send = ctypes.windll.user32.SendMessageW
+    send.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p]
+    send.restype = ctypes.c_void_p
+    hwnd = int(form.Handle.ToInt64())
+    send(hwnd, 0x0080, 1, int(large.Handle.ToInt64()))
+    send(hwnd, 0x0080, 0, int(small.Handle.ToInt64()))
 
 
 def _enable_taskbar_toggle(form):

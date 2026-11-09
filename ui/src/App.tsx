@@ -98,7 +98,7 @@ export function App() {
       ? `Build ${update.latest_build} is ready. ${update.notes}`
       : `Build ${update.latest_build} is ready.`;
     notify(text);
-    notifyUpdate("Cairn update", text);
+    notifyUpdate("fraghost update", text);
   }, [update]);
 
   function installUpdate() {
@@ -277,8 +277,11 @@ export function App() {
     event.stopPropagation();
     const ratioX = event.clientX / Math.max(1, window.innerWidth);
     const grabY = event.clientY;
+    const originX = event.screenX;
+    const originY = event.screenY;
     let chain = Promise.resolve();
     function move(next: MouseEvent) {
+      if (Math.abs(next.screenX - originX) + Math.abs(next.screenY - originY) < 4) return;
       const screenX = next.screenX;
       const screenY = next.screenY;
       chain = chain.then(() => windowDrag(screenX, screenY, ratioX, grabY));
@@ -474,7 +477,7 @@ export function App() {
         >
           <div className="brand-lock">
             <Mark size={28} />
-            <h2>Cairn</h2>
+            <h2>fraghost</h2>
           </div>
           <p className="lead">This client is locked with a local password.</p>
           <label className="field">
@@ -505,7 +508,7 @@ export function App() {
       <header className={native ? "top native" : "top"}>
         <div className="brand pywebview-drag-region" onMouseDown={startTitleDrag} onDoubleClick={() => native && windowToggleMaximize()}>
           <Mark />
-          <span className="word">Cairn</span>
+          <span className="word">fraghost</span>
         </div>
         <div className="title-gap pywebview-drag-region" onMouseDown={startTitleDrag} onDoubleClick={() => native && windowToggleMaximize()} />
         <input className="search" placeholder="Filter" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter torrents" />
@@ -549,7 +552,7 @@ export function App() {
         <button type="button" className="btn-danger icon-btn" title="Remove" disabled={!selected.length} onClick={() => (settings?.confirm_remove === false ? void removeSelected(false) : setDialog({ kind: "remove" }))}><Glyph name="trash" /><span>Remove</span></button>
         <button type="button" className="btn icon-btn" title="Settings" onClick={() => setDialog({ kind: "settings" })}><Glyph name="gear" /><span>Settings</span></button>
       </div>
-      {offline && <div className="banner">Cairn isn't reachable. The local engine may still be starting.</div>}
+      {offline && <div className="banner">fraghost isn't reachable. The local engine may still be starting.</div>}
       <div className="workspace">
         <aside>
           <div className="nav-label">Transfers</div>
@@ -581,7 +584,7 @@ export function App() {
                 <div>
                   {torrents.length === 0 && <Mark size={44} />}
                   <h2>{torrents.length === 0 ? "No torrents yet" : "Nothing in this view"}</h2>
-                  <p>Add a .torrent file or a magnet link. Magnet metadata is fetched in the background, so the transfer can start immediately. Cairn is free software: no ads, no tracking, no bundled offers.</p>
+                  <p>Add a .torrent file or a magnet link. Magnet metadata is fetched in the background, so the transfer can start immediately. fraghost is free software: no ads, no tracking, no bundled offers.</p>
                 </div>
               </div>
             ) : (
@@ -1082,7 +1085,7 @@ function AboutDialog({
       <div className="dialog">
         <div className="brand-lock">
           <Mark size={36} />
-          <h2>{app?.name || "Cairn"} {app?.version ?? "0.1.0"}</h2>
+          <h2>{app?.name || "fraghost"} {app?.version ?? "0.1.0"}</h2>
         </div>
         <p className="lead">
           A free BitTorrent client with the classic transfer tools: magnets, file selection, queues, rate limits, a scheduler, RSS, and a blocklist.
@@ -1322,8 +1325,8 @@ function VpnDialog({
         }}
       >
         <h2>VPN</h2>
-        <p className="muted">Cairn sends only BitTorrent traffic through this server and stops direct connections while the switch is on. Other programs on this computer stay on your normal connection.</p>
-        <p className="muted">Cairn does not bundle a public relay. Those servers can see the transfers they carry. Use the SOCKS or HTTP proxy from a VPN you trust. Proton VPN, Mullvad, AirVPN, and IVPN allow BitTorrent.</p>
+        <p className="muted">fraghost sends only BitTorrent traffic through this server and stops direct connections while the switch is on. Other programs on this computer stay on your normal connection.</p>
+        <p className="muted">fraghost does not bundle a public relay. Those servers can see the transfers they carry. Use the SOCKS or HTTP proxy from a VPN you trust. Proton VPN, Mullvad, AirVPN, and IVPN allow BitTorrent.</p>
         <label className="field"><span>Type</span>
           <select value={proxyType} onChange={(event) => setProxyType(event.target.value as Settings["proxy_type"])}>
             <option value="socks5">SOCKS5</option>
@@ -1547,7 +1550,7 @@ function SettingsDialog({ settings, onClose, onSave }: { settings: Settings; onC
                 <label className="check"><input type="checkbox" checked={draft.announce_to_all_trackers} onChange={(event) => setDraft({ ...draft, announce_to_all_trackers: event.target.checked })} /> Announce to all trackers</label>
                 <label className="field"><span>Disk cache MB</span><input type="number" min={1} value={draft.disk_cache_mb} onChange={(event) => setDraft({ ...draft, disk_cache_mb: Number(event.target.value) })} /></label>
                 <label className="field"><span>Web UI password</span><input type="password" value={draft.web_password} onChange={(event) => setDraft({ ...draft, web_password: event.target.value })} placeholder="Empty leaves the local UI open" /></label>
-                <label className="field"><span>Update repository</span><input value={draft.update_repo} onChange={(event) => setDraft({ ...draft, update_repo: event.target.value })} placeholder="owner/cairn" spellCheck={false} /></label>
+                <label className="field"><span>Update repository</span><input value={draft.update_repo} onChange={(event) => setDraft({ ...draft, update_repo: event.target.value })} placeholder="owner/fraghost" spellCheck={false} /></label>
                 <p className="muted">After a push publishes a newer installer, Update appears in the footer.</p>
                 <label className="field">
                   <span>IP blocklist</span>

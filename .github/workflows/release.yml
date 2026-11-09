@@ -26,8 +26,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Cairn build ${{ github.run_number }}
+          name: fraghost build ${{ github.run_number }}
           make_latest: true
           files: |
-            packaging/out/CairnSetup.exe
+            packaging/out/fraghost-setup.exe
             packaging/out/version.json

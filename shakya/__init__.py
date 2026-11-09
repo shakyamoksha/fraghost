@@ -1,4 +1,4 @@
-"""Cairn — a free, open-source BitTorrent client."""
+"""fraghost — a free, open-source BitTorrent client."""
 
 import warnings
 

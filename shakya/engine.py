@@ -167,7 +167,7 @@ class Engine:
         self._running = True
         self._thread = threading.Thread(target=self._loop, name="shakya-session", daemon=True)
         self._thread.start()
-        self._log(f"Cairn {__version__} is listening")
+        self._log(f"fraghost {__version__} is listening")
 
     def shutdown(self) -> None:
         self._running = False
@@ -475,7 +475,7 @@ class Engine:
             raise ValueError("That path has no files to put in a torrent")
         flags = 0 if hybrid else int(lt.create_torrent.v1_only)
         created = lt.create_torrent(entries, piece_size, flags)
-        created.set_creator(f"Cairn/{__version__}")
+        created.set_creator(f"fraghost/{__version__}")
         created.set_creation_date(int(time.time()))
         if comment:
             created.set_comment(comment)
@@ -946,7 +946,7 @@ class Engine:
             "speed_history": list(self._history),
             "labels": labels,
             "detail": detail,
-            "app": {"name": "Cairn", "version": __version__, "build": int(BUILD), "engine": str(lt.version)},
+            "app": {"name": "fraghost", "version": __version__, "build": int(BUILD), "engine": str(lt.version)},
         }
 
     def _summary(self, handle, meta: dict, status) -> dict:
@@ -1027,7 +1027,7 @@ class Engine:
         except Exception:
             raw_pieces = []
         have_pieces = sum(1 for bit in raw_pieces if bit)
-        pieces = _downsample_pieces(raw_pieces)
+        pieces = _downsample_pieces(raw_pieces, limit=480)
         download_limit = int(handle.download_limit())
         upload_limit = int(handle.upload_limit())
         peers = _peer_rows(handle)
@@ -1304,8 +1304,8 @@ class Engine:
             "in_enc_policy": policy,
             "allowed_enc_level": level,
             "prefer_rc4": encryption == "forced",
-            "user_agent": f"Cairn/{__version__}",
-            "peer_fingerprint": "-CN0100-",
+            "user_agent": f"fraghost/{__version__}",
+            "peer_fingerprint": "-FG0100-",
             "share_ratio_limit": -1,
             "seed_time_limit": -1,
             "cache_size": cache_blocks,
@@ -1694,13 +1694,13 @@ def _peer_flags(peer) -> str:
     return ", ".join(parts)
 
 
-def _downsample_pieces(raw: list) -> list[int]:
+def _downsample_pieces(raw: list, limit: int = 480) -> list[int]:
     count = len(raw)
-    if count <= 4096:
+    if count <= limit:
         return [1 if bit else 0 for bit in raw]
     output = []
-    step = count / 4096
-    for index in range(4096):
+    step = count / limit
+    for index in range(limit):
         start = int(index * step)
         end = max(start + 1, int((index + 1) * step))
         chunk = raw[start:end]
@@ -1727,7 +1727,7 @@ def _availability(status):
 def _fetch_url(url: str, limit: int = 8 * 1024 * 1024) -> bytes:
     if not url.startswith(("http://", "https://")):
         raise ValueError("Only http and https links are supported")
-    request = urllib.request.Request(url, headers={"User-Agent": f"Cairn/{__version__}"})
+    request = urllib.request.Request(url, headers={"User-Agent": f"fraghost/{__version__}"})
     with urllib.request.urlopen(request, timeout=20) as response:
         data = response.read(limit + 1)
     if len(data) > limit:

@@ -1,4 +1,4 @@
-"""Check GitHub for a newer Cairn installer and launch it."""
+"""Check GitHub for a newer fraghost installer and launch it."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _HOSTS = {
     "release-assets.githubusercontent.com",
     "github-releases.githubusercontent.com",
 }
-_SETUP_NAME = "CairnSetup.exe"
+_SETUP_NAME = "fraghost-setup.exe"
 _MAX_BYTES = 500 * 1024 * 1024
 
 
@@ -55,7 +55,7 @@ def _open(url: str, timeout: int = 20):
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": f"Cairn/{__version__}",
+            "User-Agent": f"fraghost/{__version__}",
             "Accept": "application/vnd.github+json",
         },
     )
@@ -151,8 +151,8 @@ class Updates:
         try:
             status = self.check(settings)
             if not status["available"]:
-                raise ValueError(status["error"] or "Cairn is already up to date")
-            destination = Path(tempfile.gettempdir()) / f"CairnSetup-{status['latest_build']}.exe"
+                raise ValueError(status["error"] or "fraghost is already up to date")
+            destination = Path(tempfile.gettempdir()) / f"fraghost-setup-{status['latest_build']}.exe"
             _download(status["url"], destination)
             _launch_installer(destination)
             return {"ok": True}

@@ -1,8 +1,8 @@
-# Cairn
+# fraghost
 
-Cairn is a free, open-source BitTorrent client for people who want the classic transfer tools without ads, tracking, or bundled software.
+fraghost is a free, open-source BitTorrent client for people who want the classic transfer tools without ads, tracking, or bundled software.
 
-The interface is licensed under GPL-3.0-or-later. Transfers are handled by [libtorrent](https://libtorrent.org/) (BSD-3-Clause), the same engine family used by other full BitTorrent clients. Cairn does not phone home and does not ship a search catalog.
+The interface is licensed under GPL-3.0-or-later. Transfers are handled by [libtorrent](https://libtorrent.org/) (BSD-3-Clause), the same engine family used by other full BitTorrent clients. fraghost does not phone home and does not ship a search catalog.
 
 ## Features
 
@@ -34,10 +34,10 @@ cd ui
 npm install
 npm run build
 cd ..
-cairn.cmd
+fraghost.cmd
 ```
 
-`cairn.cmd` opens the desktop window. `shakya.cmd` does the same thing. The UI is also served at the printed local address if you want it in a browser.
+`fraghost.cmd` opens the desktop window. `cairn.cmd` and `shakya.cmd` do the same thing. The UI is also served at the printed local address if you want it in a browser.
 
 ```bat
 .venv\Scripts\python -m shakya --server
