@@ -19,7 +19,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
-AppMutex=fraghostSingleton
+AppMutex=fraghostSingleton,CairnSingleton
 UninstallDisplayName=fraghost
 
 [Files]

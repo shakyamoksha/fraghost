@@ -81,15 +81,12 @@ export function App() {
       }).catch(() => undefined);
     };
     look();
-    const timer = window.setInterval(look, 120_000);
-    const onFocus = () => look();
-    window.addEventListener("focus", onFocus);
+    const timer = window.setInterval(look, 60_000);
     return () => {
       stop = true;
       window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
     };
-  }, [locked]);
+  }, [locked, settings?.update_mode, settings?.update_repo]);
 
   useEffect(() => {
     if (!update?.available || update.latest_build <= toldUpdate.current) return;
@@ -107,6 +104,13 @@ export function App() {
       setUpdating(false);
       notify(error.message);
     });
+  }
+
+  function checkForUpdate() {
+    void api.checkUpdate().then((status) => {
+      setUpdate(status);
+      if (!status.available) notify(status.error || "This build is current.");
+    }).catch((error: Error) => notify(error.message));
   }
 
   useEffect(() => {
@@ -707,8 +711,12 @@ export function App() {
           {" · "}↓ {formatBytes(stats?.total_downloaded ?? 0)}
           {" · "}↑ {formatBytes(stats?.total_uploaded ?? 0)}
           {" · "}
-          {update?.available && (
-            <button className="btn" type="button" disabled={updating} onClick={installUpdate}>{updating ? "Updating…" : "Update"}</button>
+          {settings && settings.update_mode !== "off" && (
+            update?.available ? (
+              <button className="btn" type="button" disabled={updating} onClick={installUpdate}>{updating ? "Updating…" : "Update"}</button>
+            ) : (
+              <button className="btn-ghost" type="button" onClick={checkForUpdate}>Check for updates</button>
+            )
           )}
           {" · "}
           <button className="btn-ghost" onClick={() => setDialog({ kind: "about" })}>About</button>
@@ -783,6 +791,10 @@ export function App() {
       {dialog?.kind === "settings" && settings && (
         <SettingsDialog
           settings={settings}
+          update={update}
+          updating={updating}
+          onCheck={checkForUpdate}
+          onInstall={installUpdate}
           onClose={() => {
             document.documentElement.dataset.theme = settings.theme || "system";
             setDialog(null);
@@ -805,6 +817,7 @@ export function App() {
           update={update}
           updating={updating}
           onUpdate={installUpdate}
+          onCheck={checkForUpdate}
           onClose={() => setDialog(null)}
         />
       )}
@@ -1071,12 +1084,14 @@ function AboutDialog({
   update,
   updating,
   onUpdate,
+  onCheck,
   onClose,
 }: {
   app?: { name: string; version: string; build?: number; engine: string };
   update: UpdateStatus | null;
   updating: boolean;
   onUpdate: () => void;
+  onCheck: () => void;
   onClose: () => void;
 }) {
   const build = app?.build ?? update?.current_build ?? 0;
@@ -1099,8 +1114,10 @@ function AboutDialog({
           {!update?.available && update?.error ? ` ${update.error}` : ""}
         </p>
         <div className="dialog-actions">
-          {update?.available && (
+          {update?.available ? (
             <button className="btn" type="button" disabled={updating} onClick={onUpdate}>{updating ? "Updating…" : "Update"}</button>
+          ) : (
+            <button className="btn" type="button" onClick={onCheck}>Check for updates</button>
           )}
           <button className="btn-primary" onClick={onClose}>Close</button>
         </div>
@@ -1353,7 +1370,7 @@ function VpnDialog({
 }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const SETTING_TABS = ["Downloads", "Connection", "Bandwidth", "Queue", "Scheduler", "RSS", "Advanced"] as const;
+const SETTING_TABS = ["Downloads", "Connection", "Bandwidth", "Queue", "Scheduler", "RSS", "Updates", "Advanced"] as const;
 
 function MenuItem({ glyph, label, disabled, danger, onClick }: { glyph: GlyphName; label: string; disabled?: boolean; danger?: boolean; onClick: () => void }) {
   return (
@@ -1364,7 +1381,23 @@ function MenuItem({ glyph, label, disabled, danger, onClick }: { glyph: GlyphNam
   );
 }
 
-function SettingsDialog({ settings, onClose, onSave }: { settings: Settings; onClose: () => void; onSave: (next: Settings) => Promise<void> }) {
+function SettingsDialog({
+  settings,
+  update,
+  updating,
+  onClose,
+  onSave,
+  onCheck,
+  onInstall,
+}: {
+  settings: Settings;
+  update: UpdateStatus | null;
+  updating: boolean;
+  onClose: () => void;
+  onSave: (next: Settings) => Promise<void>;
+  onCheck: () => void;
+  onInstall: () => void;
+}) {
   const [draft, setDraft] = useState(settings);
   const [section, setSection] = useState<(typeof SETTING_TABS)[number]>("Downloads");
   const [error, setError] = useState("");
@@ -1544,14 +1577,45 @@ function SettingsDialog({ settings, onClose, onSave }: { settings: Settings; onC
                 </div>
               </>
             )}
+            {section === "Updates" && (
+              <>
+                <label className="check" style={{ alignItems: "flex-start" }}>
+                  <input type="radio" name="update_mode" checked={draft.update_mode === "off"} onChange={() => setDraft({ ...draft, update_mode: "off" })} />
+                  <span><b>Off</b><span className="muted" style={{ display: "block" }}>Don't look for updates.</span></span>
+                </label>
+                <label className="check" style={{ alignItems: "flex-start" }}>
+                  <input type="radio" name="update_mode" checked={draft.update_mode === "notify"} onChange={() => setDraft({ ...draft, update_mode: "notify" })} />
+                  <span>
+                    <b>Notify me</b>
+                    <span className="muted" style={{ display: "block" }}>Check on startup and every 6 hours. When a newer installer is published, Update appears in the footer and a tray notice is shown. Nothing is downloaded until you choose it.</span>
+                  </span>
+                </label>
+                <label className="check" style={{ alignItems: "flex-start" }}>
+                  <input type="radio" name="update_mode" checked={draft.update_mode === "auto"} onChange={() => setDraft({ ...draft, update_mode: "auto" })} />
+                  <span>
+                    <b>Install automatically</b>
+                    <span className="muted" style={{ display: "block" }}>The same check. When a newer build exists and nothing is downloading or checking, fraghost installs it and restarts. Seeding can restart. An active download keeps Update in the footer until the queue is idle.</span>
+                  </span>
+                </label>
+                {draft.update_mode === "auto" && update?.current_build === 0 && (
+                  <p className="muted">This is a development copy, so it only tells you. An installed copy can install on its own.</p>
+                )}
+                <label className="field"><span>GitHub repository</span><input value={draft.update_repo} onChange={(event) => setDraft({ ...draft, update_repo: event.target.value })} placeholder="owner/fraghost" spellCheck={false} /></label>
+                <p className="muted">{draft.update_mode !== settings.update_mode || draft.update_repo !== settings.update_repo ? "Save to use this choice." : updateLine(draft.update_mode, update)}</p>
+                <div className="controls">
+                  <button className="btn" type="button" disabled={draft.update_mode !== settings.update_mode || draft.update_repo !== settings.update_repo} onClick={onCheck}>Check now</button>
+                  {update?.available && (
+                    <button className="btn-primary" type="button" disabled={updating} onClick={onInstall}>{updating ? "Updating…" : "Update now"}</button>
+                  )}
+                </div>
+              </>
+            )}
             {section === "Advanced" && (
               <>
                 <label className="check"><input type="checkbox" checked={draft.anonymous_mode} onChange={(event) => setDraft({ ...draft, anonymous_mode: event.target.checked })} /> Anonymous mode</label>
                 <label className="check"><input type="checkbox" checked={draft.announce_to_all_trackers} onChange={(event) => setDraft({ ...draft, announce_to_all_trackers: event.target.checked })} /> Announce to all trackers</label>
                 <label className="field"><span>Disk cache MB</span><input type="number" min={1} value={draft.disk_cache_mb} onChange={(event) => setDraft({ ...draft, disk_cache_mb: Number(event.target.value) })} /></label>
                 <label className="field"><span>Web UI password</span><input type="password" value={draft.web_password} onChange={(event) => setDraft({ ...draft, web_password: event.target.value })} placeholder="Empty leaves the local UI open" /></label>
-                <label className="field"><span>Update repository</span><input value={draft.update_repo} onChange={(event) => setDraft({ ...draft, update_repo: event.target.value })} placeholder="owner/fraghost" spellCheck={false} /></label>
-                <p className="muted">After a push publishes a newer installer, Update appears in the footer.</p>
                 <label className="field">
                   <span>IP blocklist</span>
                   <span style={{ display: "flex", gap: 8 }}>
@@ -1579,6 +1643,14 @@ function SettingsDialog({ settings, onClose, onSave }: { settings: Settings; onC
       rss_feeds: draft.rss_feeds.map((feed, feedIndex) => (feedIndex === index ? { ...feed, ...patch } : feed)),
     });
   }
+}
+
+function updateLine(mode: Settings["update_mode"], update: UpdateStatus | null): string {
+  if (mode === "off") return "Automatic checks are off. Check now still looks once.";
+  if (!update?.checked_at) return "Not checked yet.";
+  if (update.available) return `Build ${update.latest_build} is ready.`;
+  if (update.error) return update.error;
+  return "This build is current.";
 }
 
 function PathField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {

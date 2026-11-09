@@ -10,10 +10,21 @@ from pathlib import Path
 
 from .engine import Engine
 from .server import serve
-from .settings import schedule_mode
+from .settings import merge_settings, schedule_mode
+from .update import updates
 
 
 def main() -> None:
+    base = {"save_path": str(Path.home()), "update_mode": "notify"}
+    assert merge_settings(base, {"update_mode": "auto"})["update_mode"] == "auto"
+    try:
+        merge_settings(base, {"update_mode": "weekly"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a bad update mode was accepted")
+    quiet = updates.check({"update_mode": "off", "update_repo": "owner/fraghost"})
+    assert quiet["available"] is False and quiet["mode"] == "off" and quiet["error"] == ""
     home = tempfile.mkdtemp(prefix="shakya-selftest-")
     os.environ["SHAKYA_HOME"] = home
     content = Path(home) / "seed"

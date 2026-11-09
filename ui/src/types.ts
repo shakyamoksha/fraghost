@@ -136,12 +136,16 @@ export interface Settings {
   confirm_remove: boolean;
   theme: "system" | "light" | "dark";
   update_repo: string;
+  update_mode: "off" | "notify" | "auto";
 }
 
 export interface UpdateStatus {
   current_version: string;
   current_build: number;
   repo: string;
+  mode: "off" | "notify" | "auto";
+  automatic: boolean;
+  checked_at: number;
   available: boolean;
   latest_version: string;
   latest_build: number;

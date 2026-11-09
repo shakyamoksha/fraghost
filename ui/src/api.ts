@@ -32,6 +32,7 @@ export const api = {
   saveSettings: (settings: Settings) => request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
   logs: () => request<{ lines: string[] }>("/api/logs"),
   updateStatus: () => request<UpdateStatus>("/api/update"),
+  checkUpdate: () => request<UpdateStatus>("/api/update?refresh=1"),
   applyUpdate: () => request<{ ok: boolean }>("/api/update", { method: "POST", body: "{}" }),
   preview: (source: string, value: string) =>
     request<Preview>("/api/preview", { method: "POST", body: JSON.stringify({ source, value }) }),

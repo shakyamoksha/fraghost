@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,8 +25,16 @@ _HOSTS = {
     "release-assets.githubusercontent.com",
     "github-releases.githubusercontent.com",
 }
-_SETUP_NAME = "fraghost-setup.exe"
+_SETUP_NAMES = ("fraghost-setup.exe", "CairnSetup.exe")
 _MAX_BYTES = 500 * 1024 * 1024
+_INTERVAL = 6 * 60 * 60
+
+
+def update_mode(settings: dict | None) -> str:
+    mode = str((settings or {}).get("update_mode") or "notify").strip().lower()
+    if mode not in ("off", "notify", "auto"):
+        return "notify"
+    return mode
 
 
 def repo_name(settings: dict | None) -> str:
@@ -72,10 +81,14 @@ def _get_json(url: str) -> dict:
 
 
 def _blank(settings: dict | None) -> dict:
+    mode = update_mode(settings)
     return {
         "current_version": __version__,
         "current_build": int(BUILD),
         "repo": repo_name(settings),
+        "mode": mode,
+        "automatic": mode == "auto" and int(BUILD) > 0,
+        "checked_at": 0,
         "available": False,
         "latest_version": "",
         "latest_build": 0,
@@ -85,43 +98,76 @@ def _blank(settings: dict | None) -> dict:
     }
 
 
+def _setup_url(assets: list) -> tuple[str, str]:
+    found: dict[str, str] = {}
+    version_url = ""
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "")
+        link = str(asset.get("browser_download_url") or "")
+        if name == "version.json":
+            version_url = link
+        elif name in _SETUP_NAMES and link:
+            found[name] = link
+    for name in _SETUP_NAMES:
+        if name in found:
+            return found[name], version_url
+    return "", version_url
+
+
 class Updates:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._status: dict | None = None
+        self._checked = 0.0
         self._applying = False
+        self._gave_up: set[int] = set()
 
-    def check(self, settings: dict | None) -> dict:
+    def check(self, settings: dict | None, force: bool = False) -> dict:
+        mode = update_mode(settings)
+        repo = repo_name(settings)
+        with self._lock:
+            now = time.time()
+            cached = self._status
+            if (
+                not force
+                and cached is not None
+                and cached.get("mode") == mode
+                and cached.get("repo") == repo
+                and now - self._checked < _INTERVAL
+            ):
+                return dict(cached)
+            if mode == "off" and not force:
+                status = _blank(settings)
+                status["checked_at"] = int(self._checked or 0)
+                return status
+            status = self._fetch(settings)
+            self._checked = time.time()
+            status["checked_at"] = int(self._checked)
+            status["mode"] = mode
+            status["automatic"] = mode == "auto" and int(BUILD) > 0
+            self._status = status
+            return dict(status)
+
+    def _fetch(self, settings: dict | None) -> dict:
         status = _blank(settings)
         if not status["repo"]:
-            status["error"] = "Set a GitHub repository under Settings → Advanced to receive updates."
-            with self._lock:
-                self._status = status
+            status["error"] = "Set a GitHub repository under Settings → Updates to receive updates."
             return status
         try:
             release = _get_json(f"https://api.github.com/repos/{status['repo']}/releases/latest")
             assets = release.get("assets") if isinstance(release.get("assets"), list) else []
-            version_url = ""
-            setup_url = ""
-            for asset in assets:
-                if not isinstance(asset, dict):
-                    continue
-                name = str(asset.get("name") or "")
-                link = str(asset.get("browser_download_url") or "")
-                if name == "version.json":
-                    version_url = link
-                elif name == _SETUP_NAME:
-                    setup_url = link
+            setup_url, version_url = _setup_url(assets)
             info: dict = {}
             if version_url:
+                _check_url(version_url)
                 info = _get_json(version_url)
             latest_build = int(info.get("build") or 0)
             latest_version = str(info.get("version") or "").strip()
             notes = str(info.get("notes") or release.get("body") or "").strip()
             if setup_url:
                 _check_url(setup_url)
-            else:
-                setup_url = ""
             status.update(
                 {
                     "latest_version": latest_version,
@@ -139,9 +185,24 @@ class Updates:
             status["error"] = "No published build yet." if exc.code == 404 else "Could not reach the update feed."
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, OSError):
             status["error"] = "Could not reach the update feed."
-        with self._lock:
-            self._status = status
         return status
+
+    def maybe_install(self, settings: dict | None, busy: bool) -> None:
+        status = self.check(settings)
+        if update_mode(settings) != "auto" or int(BUILD) <= 0:
+            return
+        if not status.get("available") or busy:
+            return
+        build = int(status.get("latest_build") or 0)
+        with self._lock:
+            if self._applying or build in self._gave_up:
+                return
+        try:
+            self.apply(settings)
+        except Exception:
+            with self._lock:
+                self._gave_up.add(build)
+            raise
 
     def apply(self, settings: dict | None) -> dict:
         with self._lock:
@@ -149,7 +210,7 @@ class Updates:
                 raise ValueError("An update is already starting")
             self._applying = True
         try:
-            status = self.check(settings)
+            status = self.check(settings, force=True)
             if not status["available"]:
                 raise ValueError(status["error"] or "fraghost is already up to date")
             destination = Path(tempfile.gettempdir()) / f"fraghost-setup-{status['latest_build']}.exe"

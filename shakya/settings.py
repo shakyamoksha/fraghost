@@ -55,6 +55,7 @@ DEFAULTS: dict = {
     "confirm_remove": True,
     "theme": "system",
     "update_repo": "",
+    "update_mode": "notify",
 }
 
 _BOOL = {
@@ -222,6 +223,13 @@ def _coerce(key: str, value, strict: bool):
             if strict:
                 raise ValueError("Update repository must look like owner/name")
             return ""
+        return text
+    if key == "update_mode":
+        text = str(value or "").strip().lower()
+        if text not in ("off", "notify", "auto"):
+            if strict:
+                raise ValueError("Update mode must be off, notify, or auto")
+            return "notify"
         return text
     if key == "theme":
         if value not in ("system", "light", "dark"):

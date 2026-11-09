@@ -18,6 +18,7 @@ from . import __version__
 from .build_info import BUILD
 from .paths import data_dir
 from .settings import load_settings, merge_settings, save_settings, schedule_mode
+from .update import updates
 
 DHT_ROUTERS = (
     ("dht.libtorrent.org", 25401),
@@ -135,6 +136,7 @@ class Engine:
         self._sched_holding = False
         self._next_watch = time.time() + 2
         self._next_rss = time.time() + 20
+        self._next_update = time.time() + 20
         self._next_resume = time.time() + 15
         self._next_sample = time.time() + 1
         self._load_library()
@@ -591,6 +593,8 @@ class Engine:
         while self._running:
             watched: list[Path] = []
             refresh = False
+            update_due = False
+            settings_copy: dict | None = None
             with self._lock:
                 try:
                     self._pump()
@@ -609,6 +613,10 @@ class Engine:
                     if now >= self._next_rss:
                         self._next_rss = now + 900
                         refresh = True
+                    if now >= self._next_update:
+                        self._next_update = now + 60
+                        update_due = True
+                        settings_copy = dict(self.settings)
                 except Exception as exc:
                     self._log(f"Session loop: {exc}")
             for path in watched:
@@ -618,7 +626,29 @@ class Engine:
                     self.refresh_rss()
                 except Exception as exc:
                     self._log(f"RSS refresh failed: {exc}")
+            if update_due and settings_copy is not None:
+                try:
+                    updates.maybe_install(settings_copy, self._transfers_busy())
+                except Exception as exc:
+                    self._log(f"Update: {exc}")
             time.sleep(0.4)
+
+    def _transfers_busy(self) -> bool:
+        with self._lock:
+            pairs = [
+                (handle, str((self._records.get(infohash) or {}).get("manual") or ""))
+                for infohash, handle in self._handles.items()
+            ]
+        for handle, manual in pairs:
+            try:
+                if not handle.is_valid():
+                    continue
+                status = handle.status()
+            except Exception:
+                continue
+            if self._state_name(status, manual) in ("downloading", "metadata", "checking"):
+                return True
+        return False
 
     def _pump(self) -> None:
         for alert in self._ses.pop_alerts():

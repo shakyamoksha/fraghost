@@ -122,7 +122,8 @@ def _make_handler(engine, dist_dir: Path | None):
                 self._send_json(200, engine.update_settings(self._body()))
                 return
             if parts == ["update"] and method == "GET":
-                self._send_json(200, updates.check(engine.settings))
+                force = (query.get("refresh") or ["0"])[0] in ("1", "true")
+                self._send_json(200, updates.check(engine.settings, force=force))
                 return
             if parts == ["update"] and method == "POST":
                 self._send_json(200, updates.apply(engine.settings))
