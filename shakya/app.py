@@ -526,8 +526,22 @@ class _RECT(ctypes.Structure):
     )
 
 
-class _NCCALCSIZE_PARAMS(ctypes.Structure):
-    _fields_ = (("rgrc", _RECT * 3), ("lppos", ctypes.c_void_p))
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = (
+        ("cbSize", ctypes.c_ulong),
+        ("rcMonitor", _RECT),
+        ("rcWork", _RECT),
+        ("dwFlags", ctypes.c_ulong),
+    )
+
+
+_WNDPROC = ctypes.WINFUNCTYPE(
+    ctypes.c_ssize_t,
+    ctypes.c_void_p,
+    ctypes.c_uint,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+)
 
 
 def _assign_window_icon(form, large, small) -> None:
@@ -543,45 +557,64 @@ def _assign_window_icon(form, large, small) -> None:
 
 def _enable_taskbar_toggle(form):
     """Keep caption styles so the taskbar can minimize and restore, without drawing the system frame."""
-    _clr()
-    from System import IntPtr
-    from System.Windows.Forms import FormWindowState, NativeWindow, Screen
-
     hwnd = int(form.Handle.ToInt64())
     GWL_STYLE = -16
+    GWL_WNDPROC = -4
+    WM_NCCALCSIZE = 0x0083
     WS_CAPTION = 0x00C00000
     WS_THICKFRAME = 0x00040000
     WS_MINIMIZEBOX = 0x00020000
     WS_MAXIMIZEBOX = 0x00010000
     WS_SYSMENU = 0x00080000
     user32 = ctypes.windll.user32
-    try:
-        get_long = user32.GetWindowLongPtrW
-        set_long = user32.SetWindowLongPtrW
-    except AttributeError:
-        get_long = user32.GetWindowLongW
-        set_long = user32.SetWindowLongW
-    style = int(get_long(hwnd, GWL_STYLE)) & 0xFFFFFFFF
+    get_long = user32.GetWindowLongPtrW
+    set_long = user32.SetWindowLongPtrW
+    get_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    get_long.restype = ctypes.c_void_p
+    set_long.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+    set_long.restype = ctypes.c_void_p
+    call_proc = user32.CallWindowProcW
+    call_proc.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+    call_proc.restype = ctypes.c_ssize_t
+    user32.IsZoomed.argtypes = [ctypes.c_void_p]
+    user32.IsZoomed.restype = ctypes.c_int
+    user32.MonitorFromWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    user32.MonitorFromWindow.restype = ctypes.c_void_p
+    user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    user32.GetMonitorInfoW.restype = ctypes.c_int
+    user32.SetWindowPos.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint,
+    ]
+
+    previous = get_long(hwnd, GWL_WNDPROC)
+
+    def _wndproc(handle, msg, wparam, lparam):
+        if msg == WM_NCCALCSIZE and int(wparam or 0) != 0:
+            if user32.IsZoomed(handle):
+                monitor = user32.MonitorFromWindow(handle, 2)
+                info = _MONITORINFO()
+                info.cbSize = ctypes.sizeof(info)
+                if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                    rect = ctypes.cast(lparam, ctypes.POINTER(_RECT)).contents
+                    rect.left = info.rcWork.left
+                    rect.top = info.rcWork.top
+                    rect.right = info.rcWork.right
+                    rect.bottom = info.rcWork.bottom
+            return 0
+        return call_proc(previous, handle, msg, wparam, lparam)
+
+    callback = _WNDPROC(_wndproc)
+    style = int(get_long(hwnd, GWL_STYLE) or 0) & 0xFFFFFFFF
     set_long(hwnd, GWL_STYLE, style | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
-
-    class Hook(NativeWindow):
-        def WndProc(self, message) -> None:
-            if message.Msg == 0x0083 and int(message.WParam.ToInt32()) != 0:
-                if form.WindowState == FormWindowState.Maximized:
-                    params = ctypes.cast(int(message.LParam.ToInt64()), ctypes.POINTER(_NCCALCSIZE_PARAMS)).contents
-                    work = Screen.FromHandle(form.Handle).WorkingArea
-                    params.rgrc[0].left = int(work.X)
-                    params.rgrc[0].top = int(work.Y)
-                    params.rgrc[0].right = int(work.X + work.Width)
-                    params.rgrc[0].bottom = int(work.Y + work.Height)
-                message.Result = IntPtr.Zero
-                return
-            NativeWindow.WndProc(self, message)
-
-    hook = Hook()
-    hook.AssignHandle(form.Handle)
+    set_long(hwnd, GWL_WNDPROC, ctypes.cast(callback, ctypes.c_void_p))
     user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
-    return hook
+    return callback
 
 
 def _clr() -> None:
