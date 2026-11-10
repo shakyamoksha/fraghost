@@ -511,7 +511,7 @@ input[type="checkbox"]:checked::after {
 .cell { height: 16px; border: 0; border-radius: 3px; background: var(--hover); padding: 0; }
 .cell[data-mode="L"] { background: var(--warning); }
 .cell[data-mode="S"] { background: var(--danger); }
-.feed { display: grid; grid-template-columns: 1.4fr 1fr 0.6fr auto; gap: 8px; align-items: center; }
+.feed { display: grid; grid-template-columns: 1.4fr 1fr 1fr 0.7fr auto; gap: 8px; align-items: center; }
 .log {
   margin: 0;
   max-height: 280px;

@@ -1225,9 +1225,9 @@ function Detail({ tab, detail, history, onPatch, onOpen, onCopy, onExport, onRec
     return (
       <div>
         <table className="subtable">
-          <thead><tr><th>Address</th><th>Client</th><th>Progress</th><th className="num">Down</th><th className="num">Up</th><th>Flags</th></tr></thead>
+          <thead><tr><th>Address</th><th>Client</th><th>Progress</th><th className="num">Down</th><th className="num">Up</th><th>Flags</th><th /></tr></thead>
           <tbody>
-            {detail.peers.length === 0 && <tr><td colSpan={6}>No peers connected.</td></tr>}
+            {detail.peers.length === 0 && <tr><td colSpan={7}>No peers connected.</td></tr>}
             {detail.peers.map((row) => (
               <tr key={row.address}>
                 <td className="num" style={{ textAlign: "left" }}>{row.address}</td>
@@ -1236,6 +1236,7 @@ function Detail({ tab, detail, history, onPatch, onOpen, onCopy, onExport, onRec
                 <td className="num">{formatSpeed(row.down_speed)}</td>
                 <td className="num">{formatSpeed(row.up_speed)}</td>
                 <td>{row.flags || "—"}</td>
+                <td><button className="btn-ghost" onClick={() => onPatch({ ban_peer: row.address })}>Ban</button></td>
               </tr>
             ))}
           </tbody>
@@ -1293,6 +1294,7 @@ function Detail({ tab, detail, history, onPatch, onOpen, onCopy, onExport, onRec
       <p className="hash">{detail.id}</p>
       <div className="controls">
         <label className="check"><input type="checkbox" checked={detail.sequential} onChange={(event) => onPatch({ sequential: event.target.checked })} /> Sequential</label>
+        <label className="check"><input type="checkbox" checked={detail.first_last} onChange={(event) => onPatch({ first_last: event.target.checked })} /> First and last pieces</label>
         <label className="check"><input type="checkbox" checked={detail.super_seeding} onChange={(event) => onPatch({ super_seeding: event.target.checked })} /> Super seeding</label>
         <label className="field"><span>Label</span><input className="inline" value={label} onChange={(event) => setLabel(event.target.value)} onBlur={() => label !== detail.label && onPatch({ label })} /></label>
         <label className="field"><span>Down KB/s</span><input className="inline" type="number" min={0} value={down} onChange={(event) => setDown(Number(event.target.value))} onBlur={() => down !== detail.download_limit && onPatch({ download_limit: down })} /></label>
@@ -1596,6 +1598,9 @@ function SettingsDialog({
                 <label className="field"><span>Limited download KB/s</span><input type="number" min={0} value={draft.alt_download_limit} onChange={(event) => setDraft({ ...draft, alt_download_limit: Number(event.target.value) })} /></label>
                 <label className="field"><span>Limited upload KB/s</span><input type="number" min={0} value={draft.alt_upload_limit} onChange={(event) => setDraft({ ...draft, alt_upload_limit: Number(event.target.value) })} /></label>
                 <p className="muted">Zero means unlimited. Limited rates are used by the scheduler.</p>
+                <label className="check"><input type="checkbox" checked={draft.rate_limit_overhead} onChange={(event) => setDraft({ ...draft, rate_limit_overhead: event.target.checked })} /> Include transport overhead in the limit</label>
+                <label className="check"><input type="checkbox" checked={draft.rate_limit_utp} onChange={(event) => setDraft({ ...draft, rate_limit_utp: event.target.checked })} /> Include µTP in the limit</label>
+                <label className="check"><input type="checkbox" checked={draft.limit_lan} onChange={(event) => setDraft({ ...draft, limit_lan: event.target.checked })} /> Apply limits to peers on the local network</label>
               </div>
             )}
             {section === "Queue" && (
@@ -1607,6 +1612,7 @@ function SettingsDialog({
                 <label className="field"><span>Upload slots</span><input type="number" min={1} value={draft.max_uploads} onChange={(event) => setDraft({ ...draft, max_uploads: Number(event.target.value) })} /></label>
                 <label className="field"><span>Seed ratio</span><input type="number" min={0} step="0.1" value={draft.seed_ratio} onChange={(event) => setDraft({ ...draft, seed_ratio: Number(event.target.value) })} /></label>
                 <label className="field"><span>Seed time, minutes</span><input type="number" min={0} value={draft.seed_minutes} onChange={(event) => setDraft({ ...draft, seed_minutes: Number(event.target.value) })} /></label>
+                <label className="check"><input type="checkbox" checked={draft.dont_count_slow} onChange={(event) => setDraft({ ...draft, dont_count_slow: event.target.checked })} /> Do not count slow torrents toward the active limit</label>
                 <p className="muted">A seed ratio or time of zero does not stop seeding. Force Start ignores both.</p>
               </div>
             )}
@@ -1648,11 +1654,12 @@ function SettingsDialog({
             )}
             {section === "RSS" && (
               <>
-                <p className="muted">Feeds are checked every 15 minutes. A filter is a regular expression matched against the title. Leave it blank to take every torrent in the feed.</p>
+                <p className="muted">Feeds are checked every 15 minutes. Filters are regular expressions matched against the title. Leave both blank to take every torrent in the feed.</p>
                 {draft.rss_feeds.map((feed, index) => (
                   <div className="feed" key={feed.id}>
                     <input className="inline" placeholder="https://example.com/feed.xml" value={feed.url} onChange={(event) => updateFeed(index, { url: event.target.value })} />
-                    <input className="inline" placeholder="Title filter" value={feed.filter} onChange={(event) => updateFeed(index, { filter: event.target.value })} />
+                    <input className="inline" placeholder="Must match" value={feed.filter} onChange={(event) => updateFeed(index, { filter: event.target.value })} />
+                    <input className="inline" placeholder="Must not match" value={feed.exclude || ""} onChange={(event) => updateFeed(index, { exclude: event.target.value })} />
                     <input className="inline" placeholder="Label" value={feed.label} onChange={(event) => updateFeed(index, { label: event.target.value })} />
                     <button className="btn-ghost" type="button" onClick={() => setDraft({ ...draft, rss_feeds: draft.rss_feeds.filter((item) => item.id !== feed.id) })}>Remove</button>
                     <label className="check"><input type="checkbox" checked={feed.enabled} onChange={(event) => updateFeed(index, { enabled: event.target.checked })} /> Enabled</label>
@@ -1660,7 +1667,7 @@ function SettingsDialog({
                   </div>
                 ))}
                 <div className="controls">
-                  <button className="btn" type="button" onClick={() => setDraft({ ...draft, rss_feeds: [...draft.rss_feeds, { id: crypto.randomUUID(), url: "", enabled: true, filter: "", label: "", save_path: "", seen: [] }] })}>Add feed</button>
+                  <button className="btn" type="button" onClick={() => setDraft({ ...draft, rss_feeds: [...draft.rss_feeds, { id: crypto.randomUUID(), url: "", enabled: true, filter: "", exclude: "", label: "", save_path: "", seen: [] }] })}>Add feed</button>
                   <button className="btn" type="button" onClick={() => void api.refreshRss().then((result) => setError(result.added ? `Added ${result.added}` : "No new items")).catch((reason: Error) => setError(reason.message))}>Check now</button>
                 </div>
               </>

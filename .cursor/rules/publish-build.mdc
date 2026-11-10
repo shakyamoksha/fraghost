@@ -1,0 +1,17 @@
+---
+description: Publish a new fraghost installer whenever commits are pushed to main
+alwaysApply: true
+---
+
+# Publish a build after every push to main
+
+A push to `github/main` (`https://github.com/shakyamoksha/fraghost.git`) is not an update. The app only installs a newer GitHub Release.
+
+After every push to that branch:
+
+1. Read the latest release tag `build-N` and use `N + 1`.
+2. Leave `fraghost/build_info.py` at `BUILD = 0` and `UPDATE_REPO = ""`. The build script overwrites only the staged copy.
+3. Run `packaging/build.ps1 -BuildNumber <N> -UpdateRepo "shakyamoksha/fraghost" -Notes "<one sentence for a non-technical user>"`.
+4. Confirm source `fraghost/build_info.py` is still build 0.
+5. Publish with `gh` (`C:\Users\xrann\AppData\Local\gh-cli\bin\gh.exe` if it is not on PATH): tag `build-N`, title `fraghost 0.1.0 build N`, assets `packaging/out/fraghost-setup.exe` and `packaging/out/version.json`.
+6. Do not commit `packaging/out`, `packaging/stage`, or `packaging/cache`. Do not push to `origin.cursor.com`.

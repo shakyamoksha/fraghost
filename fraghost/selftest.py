@@ -23,18 +23,24 @@ def main() -> None:
         pass
     else:
         raise AssertionError("a bad update mode was accepted")
+    from .engine import _feed_accepts, _peer_ip
     from .update import repo_name
+
+    assert _feed_accepts("show", "", "Show notes")
+    assert not _feed_accepts("show", "sample", "Show sample")
+    assert _peer_ip("203.0.113.8:6881") == "203.0.113.8"
+    assert _peer_ip("[2001:db8::1]:6881") == "2001:db8::1"
 
     assert repo_name({"update_repo": "other/name"}) == "shakyamoksha/fraghost"
     assert repo_name({}) == "shakyamoksha/fraghost"
     quiet = updates.check({"update_mode": "off", "update_repo": "other/name"})
     assert quiet["available"] is False and quiet["mode"] == "off" and quiet["error"] == ""
     assert quiet["repo"] == "shakyamoksha/fraghost"
-    home = tempfile.mkdtemp(prefix="shakya-selftest-")
-    os.environ["SHAKYA_HOME"] = home
+    home = tempfile.mkdtemp(prefix="fraghost-selftest-")
+    os.environ["FRAGHOST_HOME"] = home
     content = Path(home) / "seed"
     content.mkdir()
-    (content / "notes.txt").write_text("shakya self test\n", encoding="utf-8")
+    (content / "notes.txt").write_text("fraghost self test\n", encoding="utf-8")
     (content / "extra.txt").write_text("second file for priorities\n", encoding="utf-8")
     output = Path(home) / "seed.torrent"
     block = Path(home) / "block.txt"
@@ -78,8 +84,9 @@ def main() -> None:
         assert added["label"] == "docs"
         engine.action(added["id"], "resume")
         time.sleep(1.2)
-        updated = engine.update(added["id"], {"download_limit": 32, "label": "kept"})
+        updated = engine.update(added["id"], {"download_limit": 32, "label": "kept", "first_last": True})
         assert updated["label"] == "kept"
+        assert updated["first_last"] is True
         detail = engine.snapshot(added["id"])["detail"]
         assert detail["files"], detail
         assert detail["download_limit"] == 32, detail["download_limit"]
@@ -87,6 +94,8 @@ def main() -> None:
         engine.update(added["id"], {"download_limit": 0})
         loaded = engine.import_blocklist(str(block))
         assert loaded["ranges"] == 2, loaded
+        engine.update(added["id"], {"ban_peer": "203.0.113.8:6881"})
+        assert "203.0.113.8" in engine._bans
         grid = "F" * 168
         assert schedule_mode({"scheduler_enabled": True, "scheduler": grid}, time.localtime()) == "F"
         try:

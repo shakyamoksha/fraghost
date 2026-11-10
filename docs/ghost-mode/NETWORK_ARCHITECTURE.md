@@ -4,7 +4,7 @@
 
 **Application-level integration with the existing libtorrent session. No system-wide VPN. No custom kernel driver. No automatic public server.**
 
-Ghost Mode, when it is built, should be a state machine and a stricter control surface over the session that already exists in `shakya/engine.py`. Protected traffic means traffic libtorrent sends after `set_proxy`, with DHT, LSD, µTP, UPnP, and NAT-PMP off, and with the listen address on loopback. Unprotected traffic means the switch is off and the session uses the normal interface, which is how the app works today.
+Ghost Mode, when it is built, should be a state machine and a stricter control surface over the session that already exists in `fraghost/engine.py`. Protected traffic means traffic libtorrent sends after `set_proxy`, with DHT, LSD, µTP, UPnP, and NAT-PMP off, and with the listen address on loopback. Unprotected traffic means the switch is off and the session uses the normal interface, which is how the app works today.
 
 Phase 3 adds a userspace WireGuard handshake in front of that session. It uses the published Noise_IKpsk2 message format with X25519 and ChaCha20-Poly1305 from the `cryptography` library. There is no default route, no kernel driver, and no bundled server. The endpoint and its public key come from the user. A successful handshake is `DEGRADED`, not `PROTECTED`, because BitTorrent is not carried inside the tunnel. While Ghost Mode is on and not protected, the libtorrent session is fail-closed. UDP on the physical interface is still not claimed to be sealed.
 
@@ -57,7 +57,7 @@ Do not include `explorer.exe`, `cmd.exe`, or the installer. They are not the tor
 
 ## Process identity
 
-The only identity that matters is the `pythonw.exe` that is running `-m shakya` from the fraghost install directory. Firewall rules must name that full path. They must not allow every Python on the machine. There is no service process beside this one.
+The only identity that matters is the `pythonw.exe` that is running `-m fraghost` from the fraghost install directory. Firewall rules must name that full path. They must not allow every Python on the machine. There is no service process beside this one.
 
 ## Windows permissions
 
@@ -70,7 +70,7 @@ The only identity that matters is the `pythonw.exe` that is running `-m shakya` 
 - Install stays per-user.
 - The firewall rule named `fraghost` is added once and removed on uninstall. That rule is for peer connectivity, not for Ghost Mode.
 - If a later phase adds a tunnel interface, the uninstaller has to remove that interface and any rule that points at it.
-- Private keys, if they are ever created, live in the existing `%APPDATA%\Shakya` data directory, protected with DPAPI, and are deleted on uninstall of the feature. They are not created in this phase.
+- Private keys, if they are ever created, live in `%APPDATA%\fraghost`, protected with DPAPI. They are not created in this phase.
 
 ## Security limitations
 

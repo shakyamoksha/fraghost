@@ -6,14 +6,14 @@ Phase 1 inspection of the repository as it exists. No Ghost Mode engine was adde
 
 | Layer | What is in the tree |
 | --- | --- |
-| Product | fraghost `0.1.0`, Python package `shakya` |
+| Product | fraghost `0.1.0` |
 | Language | Python 3.12 (installer embeds CPython 3.12 amd64) and TypeScript |
 | Transfer engine | `libtorrent==2.1.1` (BSD-3-Clause), imported as `libtorrent` |
 | Desktop shell | `pywebview==6.2.1` on Windows, WinForms plus WebView2 |
 | Interface | React 19 and Vite 6. The built files in `ui/dist` are served by the app. There is no separate frontend server in the installed app. |
-| Local API | `ThreadingHTTPServer` bound to `127.0.0.1` in `shakya/server.py` |
-| Settings | JSON at `%APPDATA%\Shakya\settings.json` via `shakya/paths.py` |
-| Packaging | Inno Setup script `packaging/cairn.iss`, per-user, `PrivilegesRequired=lowest`. Output name `fraghost-setup.exe`. |
+| Local API | `ThreadingHTTPServer` bound to `127.0.0.1` in `fraghost/server.py` |
+| Settings | JSON at `%APPDATA%\fraghost\settings.json` via `fraghost/paths.py` |
+| Packaging | Inno Setup script `packaging/fraghost.iss`, per-user, `PrivilegesRequired=lowest`. Output name `fraghost-setup.exe`. |
 | License | Application text is GPL-3.0-or-later (`LICENSE`, `README.md`). libtorrent is BSD-3-Clause. The UI npm packages are MIT, ISC, Apache-2.0, or CC-BY-4.0. |
 | Windows target | 64-bit Windows 10/11. The installer allows `x64compatible`. |
 
@@ -21,11 +21,11 @@ There is no Rust, Go, or C toolchain in this repository. There is no existing Wi
 
 ## Current networking architecture
 
-One process, started as `pythonw.exe -m shakya`, owns every socket that belongs to the app.
+One process, started as `pythonw.exe -m fraghost`, owns every socket that belongs to the app.
 
-1. **BitTorrent session.** `shakya/engine.py` creates one libtorrent session. With the VPN switch off, it listens on `0.0.0.0:<port>` and `[::]:<port>`. The default port is `6881` unless `random_port` is set. Outgoing traffic uses TCP and, when enabled, µTP (UDP). Peer sources are trackers, DHT, PEX, and LSD.
+1. **BitTorrent session.** `fraghost/engine.py` creates one libtorrent session. With the VPN switch off, it listens on `0.0.0.0:<port>` and `[::]:<port>`. The default port is `6881` unless `random_port` is set. Outgoing traffic uses TCP and, when enabled, µTP (UDP). Peer sources are trackers, DHT, PEX, and LSD.
 2. **Existing “VPN” switch.** This is not a tunnel. `vpn_enabled` calls libtorrent `set_proxy` with a user-supplied SOCKS4, SOCKS5, or HTTP proxy. Tracker hostnames can be sent to that proxy (`proxy_hostnames`). DHT, LSD, µTP, UPnP, and NAT-PMP are turned off while the switch is on. The listen address is moved to `127.0.0.1` and `[::1]`. If the switch is on and no proxy is configured, the session is pointed at `127.0.0.1:9` so transfers fail instead of going direct.
-3. **Local UI.** `shakya/server.py` listens only on `127.0.0.1`, starting at port `47371`. The React UI talks to that API. WebView2 loads that local origin.
+3. **Local UI.** `fraghost/server.py` listens only on `127.0.0.1`, starting at port `47371`. The React UI talks to that API. WebView2 loads that local origin.
 4. **Other HTTP.** RSS feeds and the GitHub update check use `urllib.request` with the process default route. They do not use the libtorrent proxy.
 5. **Subprocesses.** Opening a download uses `explorer`. Applying an update starts `cmd.exe` to run the installer. Neither is a torrent transfer.
 
@@ -53,7 +53,7 @@ There is no WebSocket client or server in the application source. DNS for BitTor
 
 ## Application lifecycle
 
-`shakya/app.py` `main()` loads settings, starts the engine, starts the loopback HTTP server, then opens the pywebview window. Closing the window hides it when the tray icon is up. Quit from the tray shuts the engine down and stops the HTTP server. There is no Windows service and no startup registration in the installer.
+`fraghost/app.py` `main()` loads settings, starts the engine, starts the loopback HTTP server, then opens the pywebview window. Closing the window hides it when the tray icon is up. Quit from the tray shuts the engine down and stops the HTTP server. There is no Windows service and no startup registration in the installer.
 
 Settings changes call `Engine.update_settings`, which reapplies the proxy, the listen pack, and the swarm flags under one lock.
 

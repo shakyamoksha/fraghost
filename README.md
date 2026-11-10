@@ -9,7 +9,7 @@ The interface is licensed under GPL-3.0-or-later. Transfers are handled by [libt
 - Add `.torrent` files, magnet links, and http(s) links to torrent files. A magnet starts immediately; its file list is fetched in the background
 - Pause, stop, start, and force start
 - Queue limits, queue order, and file priorities (skip, low, normal, high, max)
-- Sequential download and super seeding
+- Sequential download, first and last piece priority, and super seeding
 - Per-torrent and global rate limits
 - Week scheduler with full, limited, and stopped hours
 - DHT, peer exchange, local peer discovery, µTP, protocol encryption
@@ -17,11 +17,11 @@ The interface is licensed under GPL-3.0-or-later. Transfers are handled by [libt
 - SOCKS and HTTP proxy
 - Ghost Mode holds BitTorrent until a WireGuard endpoint you add yourself answers a handshake. There is no bundled VPN server, and a handshake does not put transfers inside the tunnel
 - Labels, watch folder, and move-on-complete
-- RSS feeds with title filters
+- RSS feeds with must-match and must-not-match title filters
 - IP blocklist import (eMule / PeerGuardian style text, including `.gz`)
 - Trackers, peers, piece map, and a session speed graph
 - Create v1 or hybrid torrents
-- Recheck, reannounce, add a peer, copy the magnet link, export the `.torrent`
+- Recheck, reannounce, add a peer, ban a peer, copy the magnet link, export the `.torrent`
 - Local web UI on `127.0.0.1` only, with an optional password
 
 ## Run
@@ -38,10 +38,10 @@ cd ..
 fraghost.cmd
 ```
 
-`fraghost.cmd` opens the desktop window. `cairn.cmd` and `shakya.cmd` do the same thing. The UI is also served at the printed local address if you want it in a browser.
+`fraghost.cmd` opens the desktop window. The UI is also served at the printed local address if you want it in a browser.
 
 ```bat
-.venv\Scripts\python -m shakya --server
+.venv\Scripts\python -m fraghost --server
 ```
 
 While changing the interface:
@@ -52,15 +52,15 @@ npm run dev
 ```
 
 ```bat
-.venv\Scripts\python -m shakya --dev
+.venv\Scripts\python -m fraghost --dev
 ```
 
-Settings and resume data are stored in `%APPDATA%\Shakya`, so an existing library stays where it is.
+Settings and resume data are stored in `%APPDATA%\fraghost`. An older library folder is moved there on the first launch.
 
 ## Check
 
 ```bat
-.venv\Scripts\python -m shakya.selftest
+.venv\Scripts\python -m fraghost.selftest
 ```
 
 The self-test creates a tiny torrent, adds it paused, restores it from resume data, checks that a magnet can start before its metadata arrives, and exercises the local API. It does not download anything from the internet.

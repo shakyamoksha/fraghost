@@ -5,4 +5,4 @@ if not exist ".venv\Scripts\python.exe" (
   echo See README.md
   exit /b 1
 )
-".venv\Scripts\python.exe" -m shakya %*
+".venv\Scripts\python.exe" -m fraghost %*

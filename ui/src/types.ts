@@ -19,6 +19,7 @@ export interface Torrent {
   save_path: string;
   queue_position: number;
   sequential: boolean;
+  first_last: boolean;
   super_seeding: boolean;
   force_start: boolean;
   has_metadata: boolean;
@@ -84,6 +85,7 @@ export interface Feed {
   url: string;
   enabled: boolean;
   filter: string;
+  exclude: string;
   label: string;
   save_path: string;
   seen: string[];
@@ -108,6 +110,10 @@ export interface Settings {
   encryption: "enabled" | "forced" | "disabled";
   anonymous_mode: boolean;
   announce_to_all_trackers: boolean;
+  rate_limit_overhead: boolean;
+  rate_limit_utp: boolean;
+  limit_lan: boolean;
+  dont_count_slow: boolean;
   max_connections: number;
   max_uploads: number;
   download_limit: number;
@@ -138,7 +144,6 @@ export interface Settings {
   disk_cache_mb: number;
   confirm_remove: boolean;
   theme: "system" | "light" | "dark";
-  update_repo: string;
   update_mode: "off" | "notify" | "auto";
 }
 

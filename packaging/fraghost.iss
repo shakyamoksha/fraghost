@@ -10,8 +10,8 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=out
 OutputBaseFilename=fraghost-setup
-SetupIconFile=..\shakya\assets\fraghost.ico
-UninstallDisplayIcon={app}\shakya\assets\fraghost.ico
+SetupIconFile=..\fraghost\assets\fraghost.ico
+UninstallDisplayIcon={app}\fraghost\assets\fraghost.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -19,18 +19,18 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
-AppMutex=fraghostSingleton,CairnSingleton
+AppMutex=fraghostSingleton
 UninstallDisplayName=fraghost
 
 [Files]
 Source: "stage\fraghost\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\fraghost"; Filename: "{app}\pythonw.exe"; Parameters: "-m shakya"; WorkingDir: "{app}"; IconFilename: "{app}\shakya\assets\fraghost.ico"
-Name: "{autodesktop}\fraghost"; Filename: "{app}\pythonw.exe"; Parameters: "-m shakya"; WorkingDir: "{app}"; IconFilename: "{app}\shakya\assets\fraghost.ico"
+Name: "{autoprograms}\fraghost"; Filename: "{app}\pythonw.exe"; Parameters: "-m fraghost"; WorkingDir: "{app}"; IconFilename: "{app}\fraghost\assets\fraghost.ico"
+Name: "{autodesktop}\fraghost"; Filename: "{app}\pythonw.exe"; Parameters: "-m fraghost"; WorkingDir: "{app}"; IconFilename: "{app}\fraghost\assets\fraghost.ico"
 
 [Run]
-Filename: "{app}\pythonw.exe"; Parameters: "-m shakya"; WorkingDir: "{app}"; Flags: nowait postinstall
+Filename: "{app}\pythonw.exe"; Parameters: "-m fraghost"; WorkingDir: "{app}"; Flags: nowait postinstall
 
 [Code]
 function FirewallCommand(const Params: String): Boolean;
@@ -68,6 +68,6 @@ begin
   begin
     FirewallCommand('advfirewall firewall delete rule name="fraghost"');
     RegDeleteValue(HKCU, 'Software\fraghost', 'FirewallProgram');
-    DeleteFile(ExpandConstant('{userappdata}\Shakya\ghost-endpoints.json'));
+    DeleteFile(ExpandConstant('{userappdata}\fraghost\ghost-endpoints.json'));
   end;
 end;

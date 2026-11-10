@@ -40,7 +40,7 @@ def serve(engine, port: int = 47371, tries: int = 10, dist_dir: Path | None = No
         if httpd is None:
             raise last
     httpd.daemon_threads = True
-    thread = threading.Thread(target=httpd.serve_forever, name="shakya-http", daemon=True)
+    thread = threading.Thread(target=httpd.serve_forever, name="fraghost-http", daemon=True)
     thread.start()
     bound = httpd.server_address[1]
     return httpd, f"http://127.0.0.1:{bound}/"
@@ -100,12 +100,7 @@ def _make_handler(engine, dist_dir: Path | None):
                 return True
             import hmac
 
-            got = (
-                self.headers.get("X-Fraghost-Password")
-                or self.headers.get("X-Cairn-Password")
-                or self.headers.get("X-Shakya-Password")
-                or ""
-            )
+            got = self.headers.get("X-Fraghost-Password") or ""
             return hmac.compare_digest(got, expected)
 
         def _api(self, method: str, parts: list[str], query: dict):
@@ -264,7 +259,7 @@ def _make_handler(engine, dist_dir: Path | None):
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header(
                     "Access-Control-Allow-Headers",
-                    "Content-Type, X-Fraghost-Password, X-Cairn-Password, X-Shakya-Password",
+                    "Content-Type, X-Fraghost-Password",
                 )
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
                 self.send_header("Vary", "Origin")

@@ -43,11 +43,11 @@ if ($LASTEXITCODE -ne 0) { throw "Build tools could not be installed" }
 & (Join-Path $Stage "python.exe") -m pip install -r (Join-Path $Root "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Dependencies could not be installed" }
 
-Copy-Item -Recurse (Join-Path $Root "shakya") (Join-Path $Stage "shakya")
-Get-ChildItem -Recurse -Directory -Filter "__pycache__" (Join-Path $Stage "shakya") | Remove-Item -Recurse -Force
+Copy-Item -Recurse (Join-Path $Root "fraghost") (Join-Path $Stage "fraghost")
+Get-ChildItem -Recurse -Directory -Filter "__pycache__" (Join-Path $Stage "fraghost") | Remove-Item -Recurse -Force
 $RepoLiteral = $UpdateRepo.Replace("\", "\\").Replace('"', '\"')
 $BuildInfo = "BUILD = $BuildNumber`r`nUPDATE_REPO = `"$RepoLiteral`"`r`n"
-[System.IO.File]::WriteAllText((Join-Path $Stage "shakya\build_info.py"), $BuildInfo)
+[System.IO.File]::WriteAllText((Join-Path $Stage "fraghost\build_info.py"), $BuildInfo)
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Stage "ui\dist") | Out-Null
 Copy-Item -Recurse (Join-Path $Root "ui\dist\*") (Join-Path $Stage "ui\dist")
@@ -55,7 +55,7 @@ Copy-Item -Recurse (Join-Path $Root "ui\dist\*") (Join-Path $Stage "ui\dist")
 @"
 @echo off
 cd /d "%~dp0"
-start "" "%~dp0pythonw.exe" -m shakya
+start "" "%~dp0pythonw.exe" -m fraghost
 "@ | Set-Content -Encoding ascii -Path (Join-Path $Stage "fraghost.cmd")
 
 $Version = "0.1.0"
@@ -74,10 +74,10 @@ $Iscc = @(
 
 if (-not $Iscc) {
   Write-Host "Inno Setup is not installed. The app folder is ready at $Stage"
-  Write-Host "Install Inno Setup, then run: ISCC.exe packaging\cairn.iss"
+  Write-Host "Install Inno Setup, then run: ISCC.exe packaging\fraghost.iss"
   exit 0
 }
 
-& $Iscc (Join-Path $PSScriptRoot "cairn.iss")
+& $Iscc (Join-Path $PSScriptRoot "fraghost.iss")
 if ($LASTEXITCODE -ne 0) { throw "The installer compiler failed" }
 Write-Host "Installer: $(Join-Path $Out 'fraghost-setup.exe')"

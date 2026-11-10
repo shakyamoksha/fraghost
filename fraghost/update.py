@@ -23,7 +23,7 @@ _HOSTS = {
     "release-assets.githubusercontent.com",
     "github-releases.githubusercontent.com",
 }
-_SETUP_NAMES = ("fraghost-setup.exe", "CairnSetup.exe")
+_SETUP_NAMES = ("fraghost-setup.exe",)
 _OFFICIAL_REPO = "shakyamoksha/fraghost"
 _MAX_BYTES = 500 * 1024 * 1024
 _INTERVAL = 6 * 60 * 60

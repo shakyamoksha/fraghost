@@ -23,7 +23,7 @@ After every saved endpoint fails, Ghost Mode waits 5, 15, 45, then 120 seconds a
 
 ## Phase 7 — Release
 
-Automated coverage is `python -m shakya.test_ghost` and `python -m shakya.selftest`. The installer removes the saved endpoint list on uninstall. It leaves the torrent library and the DPAPI secret file in place, because that file also holds the proxy password. The local WireGuard private key therefore remains until that file is removed by hand.
+Automated coverage is `python -m fraghost.test_ghost` and `python -m fraghost.selftest`. The installer removes the saved endpoint list on uninstall. It leaves the torrent library and the DPAPI secret file in place, because that file also holds the proxy password. The local WireGuard private key therefore remains until that file is removed by hand.
 
 ## Still true
 

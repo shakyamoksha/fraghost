@@ -104,6 +104,7 @@ def _blank_record(tid: str, name: str, save_path: str, manual: str, magnet: str 
         "added_at": int(time.time()),
         "manual": manual,
         "sequential": False,
+        "first_last": False,
         "super_seeding": False,
         "ratio_limit": None,
         "seed_minutes": None,
@@ -124,6 +125,7 @@ class Engine:
         self.resume_dir.mkdir(parents=True, exist_ok=True)
         self.torrent_dir.mkdir(parents=True, exist_ok=True)
         self.settings = load_settings()
+        self._bans = _read_bans(self.root)
         self._lock = threading.RLock()
         self._logs: deque[str] = deque(maxlen=400)
         self._ghost = GhostController(on_change=self._on_ghost_state)
@@ -168,15 +170,16 @@ class Engine:
             self._ses.pause()
             self._sched_holding = True
             self._log("Scheduler stopped transfers for this hour")
-        if self.settings.get("blocklist_path"):
+        if self.settings.get("blocklist_path") or self._bans:
             try:
-                count = self._load_blocklist(self.settings["blocklist_path"])
-                self._log(f"Loaded {count} blocklist ranges")
+                count = self._apply_ip_rules()
+                if self.settings.get("blocklist_path"):
+                    self._log(f"Loaded {count} blocklist ranges")
             except Exception as exc:
                 self._log(f"Blocklist was not loaded: {exc}")
         self._restore()
         self._running = True
-        self._thread = threading.Thread(target=self._loop, name="shakya-session", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name="fraghost-session", daemon=True)
         self._thread.start()
         self._log(f"fraghost {__version__} is listening")
 
@@ -393,6 +396,9 @@ class Engine:
                     handle.set_flags(lt.torrent_flags.sequential_download)
                 else:
                     handle.unset_flags(lt.torrent_flags.sequential_download)
+            if "first_last" in patch:
+                meta["first_last"] = bool(patch["first_last"])
+                self._apply_first_last(handle, meta)
             if "super_seeding" in patch:
                 enabled = bool(patch["super_seeding"])
                 meta["super_seeding"] = enabled
@@ -427,6 +433,8 @@ class Engine:
                 handle.replace_trackers([{"url": item["url"], "tier": int(item.get("tier") or 0)} for item in keep])
             if patch.get("add_peer"):
                 self._connect_peer(handle, str(patch["add_peer"]))
+            if patch.get("ban_peer"):
+                self._ban_peer(str(patch["ban_peer"]))
             if isinstance(patch.get("rename"), dict):
                 self._rename_file(handle, patch["rename"])
             self._save_library()
@@ -661,9 +669,11 @@ class Engine:
 
     def import_blocklist(self, path: str) -> dict:
         path = os.path.abspath(path)
+        if not _read_blocklist(path):
+            raise ValueError("No ranges found in that blocklist")
         with self._lock:
-            count = self._load_blocklist(path)
             self.settings["blocklist_path"] = path
+            count = self._apply_ip_rules()
             save_settings(self.settings)
         self._log(f"Loaded {count} blocklist ranges from {path}")
         return {"ranges": count, "path": path}
@@ -686,7 +696,7 @@ class Engine:
                 guid = item["guid"]
                 if guid in known:
                     continue
-                if not _filter_matches(feed.get("filter") or "", item["title"]):
+                if not _feed_accepts(feed.get("filter") or "", feed.get("exclude") or "", item["title"]):
                     continue
                 if not item["links"]:
                     seen.append(guid)
@@ -834,6 +844,8 @@ class Engine:
                 meta["pending_priorities"] = None
             except Exception as exc:
                 self._log(f"Could not apply file selection: {exc}")
+        if meta.get("first_last"):
+            self._apply_first_last(handle, meta)
         try:
             data = self._export_bytes(handle)
             if data:
@@ -1160,6 +1172,7 @@ class Engine:
             "save_path": meta.get("save_path") or "",
             "queue_position": int(status.queue_position),
             "sequential": bool(flags & int(lt.torrent_flags.sequential_download)),
+            "first_last": bool(meta.get("first_last")),
             "super_seeding": bool(flags & int(lt.torrent_flags.super_seeding)),
             "force_start": manual == "force",
             "has_metadata": bool(status.has_metadata),
@@ -1467,7 +1480,10 @@ class Engine:
             "active_downloads": int(self.settings.get("max_active_downloads") or 5),
             "active_seeds": int(self.settings.get("max_active_seeds") or 5),
             "active_limit": int(self.settings.get("max_active") or 10),
-            "dont_count_slow_torrents": True,
+            "dont_count_slow_torrents": bool(self.settings.get("dont_count_slow", True)),
+            "rate_limit_ip_overhead": bool(self.settings.get("rate_limit_overhead", True)),
+            "rate_limit_utp": bool(self.settings.get("rate_limit_utp", True)),
+            "ignore_limits_on_local_network": not bool(self.settings.get("limit_lan")),
             "announce_to_all_trackers": bool(self.settings.get("announce_to_all_trackers")),
             "announce_to_all_tiers": bool(self.settings.get("announce_to_all_trackers")),
             "anonymous_mode": bool(self.settings.get("anonymous_mode")) or tunnel,
@@ -1633,15 +1649,71 @@ class Engine:
             except Exception as exc:
                 self._log(f"{name}: {exc}")
 
-    def _load_blocklist(self, path: str) -> int:
-        ranges = _read_blocklist(path)
-        if not ranges:
-            raise ValueError("No ranges found in that blocklist")
+    def _apply_ip_rules(self) -> int:
         ip_filter = lt.ip_filter()
-        for start, end in ranges:
-            ip_filter.add_rule(start, end, 1)
+        count = 0
+        path = str(self.settings.get("blocklist_path") or "")
+        if path and os.path.isfile(path):
+            for start, end in _read_blocklist(path):
+                ip_filter.add_rule(start, end, 1)
+                count += 1
+        for ip in self._bans:
+            ip_filter.add_rule(ip, ip, 1)
         self._ses.set_ip_filter(ip_filter)
-        return len(ranges)
+        return count
+
+    def _apply_first_last(self, handle, meta: dict) -> None:
+        enabled = bool(meta.get("first_last"))
+        try:
+            status = handle.status()
+        except Exception:
+            return
+        info = self._torrent_info(handle, status)
+        if info is None:
+            return
+        files = info.files()
+        piece_length = max(1, int(info.piece_length()))
+        count = int(info.num_pieces())
+        if count <= 0:
+            return
+        try:
+            priorities = [int(item) for item in handle.get_piece_priorities()]
+        except Exception:
+            priorities = [4] * count
+        if len(priorities) != count:
+            priorities = [4] * count
+        edges = set()
+        for index in range(int(files.num_files())):
+            size = int(files.file_size(index))
+            if size <= 0:
+                continue
+            offset = int(files.file_offset(index))
+            edges.add(min(count - 1, offset // piece_length))
+            edges.add(min(count - 1, (offset + size - 1) // piece_length))
+        previous = {int(item) for item in meta.get("first_last_pieces") or []}
+        if enabled:
+            for index in edges:
+                if priorities[index] > 0:
+                    priorities[index] = 7
+            meta["first_last_pieces"] = sorted(edges)
+        else:
+            for index in previous:
+                if 0 <= index < count and priorities[index] == 7:
+                    priorities[index] = 4
+            meta["first_last_pieces"] = []
+        try:
+            handle.prioritize_pieces(priorities)
+        except Exception as exc:
+            self._log(f"Could not set piece priority: {exc}")
+
+    def _ban_peer(self, address: str) -> None:
+        ip = _peer_ip(address)
+        if not ip:
+            raise ValueError("That peer address cannot be banned")
+        self._bans.add(ip)
+        _write_bans(self.root, self._bans)
+        self._apply_ip_rules()
+        self._log("Banned a peer")
 
     def _resolve_source(self, source: str, value: str) -> tuple[bytes | None, str | None]:
         source = (source or "").lower()
@@ -1965,6 +2037,45 @@ def _filter_matches(pattern: str, title: str) -> bool:
         return re.search(pattern, title, re.I) is not None
     except re.error:
         return False
+
+
+def _feed_accepts(include: str, exclude: str, title: str) -> bool:
+    if not _filter_matches(include, title):
+        return False
+    if exclude and _filter_matches(exclude, title):
+        return False
+    return True
+
+
+def _peer_ip(address: str) -> str:
+    text = str(address or "").strip()
+    if text.startswith("["):
+        end = text.find("]")
+        return text[1:end] if end > 1 else ""
+    if text.count(":") == 1:
+        return text.split(":", 1)[0]
+    return text
+
+
+def _ban_path(root: Path) -> Path:
+    return Path(root) / "bans.json"
+
+
+def _read_bans(root: Path) -> set[str]:
+    path = _ban_path(root)
+    if not path.is_file():
+        return set()
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(loaded, list):
+        return set()
+    return {str(item) for item in loaded if _peer_ip(str(item)) == str(item) and str(item)}
+
+
+def _write_bans(root: Path, bans: set[str]) -> None:
+    _atomic(_ban_path(root), json.dumps(sorted(bans), indent=2).encode("utf-8"))
 
 
 def _read_blocklist(path: str) -> list[tuple[str, str]]:

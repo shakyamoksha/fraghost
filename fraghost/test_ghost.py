@@ -20,7 +20,7 @@ from .wireguard import HandshakeError, connect, serve_once
 
 def main() -> None:
     home = tempfile.mkdtemp(prefix="fraghost-ghost-")
-    os.environ["SHAKYA_HOME"] = home
+    os.environ["FRAGHOST_HOME"] = home
     controller = GhostController()
     assert controller.status()["state"] == "DISABLED"
     assert controller.status()["protected"] is False

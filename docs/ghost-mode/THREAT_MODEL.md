@@ -14,14 +14,14 @@ The local UI password, the proxy password, and any future WireGuard private key 
 - RSS downloads and the GitHub update check, until those call sites are routed.
 - UDP sockets that libtorrent still opens outside `set_proxy`.
 - The operator of a proxy or a future VPN endpoint, who can see the traffic they carry.
-- A person who already controls this Windows account. They can read `%APPDATA%\Shakya\settings.json`, which currently stores the proxy password in plaintext.
+- A person who already controls this Windows account. They can read `%APPDATA%\fraghost\settings.json`. The proxy password is stored with DPAPI, not in that file.
 
 ## Assets
 
 | Asset | Where it is now |
 | --- | --- |
 | Proxy host, port, username, and password | `settings.json` in plaintext |
-| Torrent resume data and labels | `%APPDATA%\Shakya` |
+| Torrent resume data and labels | `%APPDATA%\fraghost` |
 | Web UI password | `settings.json`, compared with a constant-time check on the loopback API |
 | Future WireGuard private key | Must not be created until a later approved phase. Must not be written into the frontend or into logs. |
 

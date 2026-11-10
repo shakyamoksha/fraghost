@@ -28,6 +28,10 @@ DEFAULTS: dict = {
     "encryption": "enabled",
     "anonymous_mode": False,
     "announce_to_all_trackers": True,
+    "rate_limit_overhead": True,
+    "rate_limit_utp": True,
+    "limit_lan": False,
+    "dont_count_slow": True,
     "max_connections": 200,
     "max_uploads": 8,
     "download_limit": 0,
@@ -55,7 +59,6 @@ DEFAULTS: dict = {
     "disk_cache_mb": 32,
     "confirm_remove": True,
     "theme": "system",
-    "update_repo": "",
     "update_mode": "notify",
     "ghost_enabled": False,
     "ghost_endpoint_id": "",
@@ -75,6 +78,10 @@ _BOOL = {
     "natpmp",
     "anonymous_mode",
     "announce_to_all_trackers",
+    "rate_limit_overhead",
+    "rate_limit_utp",
+    "limit_lan",
+    "dont_count_slow",
     "vpn_enabled",
     "ghost_enabled",
     "proxy_peers",
@@ -106,7 +113,6 @@ _TEXT = {
     "proxy_password",
     "web_password",
     "blocklist_path",
-    "update_repo",
 }
 
 
@@ -247,13 +253,6 @@ def _coerce(key: str, value, strict: bool):
                 raise ValueError("Encryption must be enabled, forced, or disabled")
             return "enabled"
         return value
-    if key == "update_repo":
-        text = str(value or "").strip()
-        if text and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", text):
-            if strict:
-                raise ValueError("Update repository must look like owner/name")
-            return ""
-        return text
     if key == "update_mode":
         text = str(value or "").strip().lower()
         if text not in ("off", "notify", "auto"):
@@ -313,6 +312,7 @@ def _clean_feeds(value, strict: bool) -> list:
                 "url": url,
                 "enabled": bool(item.get("enabled", True)),
                 "filter": str(item.get("filter") or ""),
+                "exclude": str(item.get("exclude") or ""),
                 "label": str(item.get("label") or "")[:80],
                 "save_path": str(item.get("save_path") or ""),
                 "seen": [str(entry) for entry in (item.get("seen") or [])][:5000],
