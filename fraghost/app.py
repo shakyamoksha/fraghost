@@ -22,6 +22,8 @@ DIST = ROOT / "ui" / "dist"
 _ICON = Path(__file__).resolve().parent / "assets" / "fraghost.ico"
 _INSTALL_MUTEX = None
 APP_NAME = "fraghost"
+_MUTEX_NAME = "fraghostSingleton"
+_SHOW_EVENT = "fraghostShow"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -31,10 +33,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=47371)
     args = parser.parse_args(argv)
 
-    global _INSTALL_MUTEX
     if sys.platform == "win32":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_NAME)
-        _INSTALL_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "fraghostSingleton")
+        if not _claim_singleton():
+            return
 
     engine = Engine()
     engine.start()
@@ -127,6 +129,7 @@ def main(argv: list[str] | None = None) -> None:
         confirm_close=False,
     )
     shell.window = window
+    _watch_show_requests(shell)
 
     def on_shown():
         shell.install_tray()
@@ -157,6 +160,101 @@ def main(argv: list[str] | None = None) -> None:
             httpd.shutdown()
         except Exception:
             pass
+
+
+def _win32(name: str):
+    library = ctypes.WinDLL(name, use_last_error=True)
+    return library
+
+
+def _claim_singleton() -> bool:
+    """Keep one desktop process. A later launch only asks that process to show itself."""
+    global _INSTALL_MUTEX
+    kernel32 = _win32("kernel32")
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+    already = ctypes.get_last_error() == 183
+    if not handle:
+        return True
+    if already:
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_bool
+        kernel32.CloseHandle(handle)
+        _signal_running_instance()
+        return False
+    _INSTALL_MUTEX = handle
+    try:
+        user32 = _win32("user32")
+        user32.AllowSetForegroundWindow.argtypes = [ctypes.c_ulong]
+        user32.AllowSetForegroundWindow.restype = ctypes.c_bool
+        user32.AllowSetForegroundWindow(0xFFFFFFFF)
+    except Exception:
+        pass
+    return True
+
+
+def _signal_running_instance() -> None:
+    kernel32 = _win32("kernel32")
+    kernel32.OpenEventW.argtypes = [ctypes.c_ulong, ctypes.c_bool, ctypes.c_wchar_p]
+    kernel32.OpenEventW.restype = ctypes.c_void_p
+    kernel32.SetEvent.argtypes = [ctypes.c_void_p]
+    kernel32.SetEvent.restype = ctypes.c_bool
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_bool
+    event = kernel32.OpenEventW(0x0002, False, _SHOW_EVENT)
+    if event:
+        kernel32.SetEvent(event)
+        kernel32.CloseHandle(event)
+    _reveal_existing_window()
+    print(f"{APP_NAME} is already running.", flush=True)
+
+
+def _reveal_existing_window() -> None:
+    user32 = _win32("user32")
+    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+    user32.FindWindowW.restype = ctypes.c_void_p
+    user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    user32.ShowWindow.restype = ctypes.c_bool
+    user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+    user32.SetForegroundWindow.restype = ctypes.c_bool
+    user32.IsIconic.argtypes = [ctypes.c_void_p]
+    user32.IsIconic.restype = ctypes.c_bool
+    hwnd = user32.FindWindowW(None, APP_NAME)
+    if not hwnd:
+        return
+    user32.ShowWindow(hwnd, 9 if user32.IsIconic(hwnd) else 5)
+    user32.SetForegroundWindow(hwnd)
+
+
+def _watch_show_requests(shell) -> None:
+    if sys.platform != "win32":
+        return
+
+    def listen() -> None:
+        kernel32 = _win32("kernel32")
+        kernel32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_wchar_p]
+        kernel32.CreateEventW.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+        kernel32.ResetEvent.argtypes = [ctypes.c_void_p]
+        kernel32.ResetEvent.restype = ctypes.c_bool
+        event = kernel32.CreateEventW(None, True, False, _SHOW_EVENT)
+        if not event:
+            return
+        shell._kept.append(event)
+        while not shell.quitting:
+            if kernel32.WaitForSingleObject(event, 500) != 0:
+                continue
+            if shell._form() is None:
+                continue
+            kernel32.ResetEvent(event)
+            try:
+                shell.show()
+            except Exception as exc:
+                print(f"Could not show the window ({exc}).", flush=True)
+
+    threading.Thread(target=listen, name="fraghost-show", daemon=True).start()
 
 
 def _window_color() -> str:
@@ -199,6 +297,8 @@ class _Shell:
         return BrowserView.instances.get(self.window.uid)
 
     def install_tray(self) -> None:
+        if self._tray is not None or self.tray_ready:
+            return
         form = self._form()
         if form is None:
             return
