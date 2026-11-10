@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { api, AuthError, setPassword } from "./api";
 import { hasDesktop, notifyUpdate, pickFolder, pickSave, pickTorrents, whenDesktopReady, windowDrag, windowHide, windowMinimize, windowResize, windowToggleFullscreen, windowToggleMaximize } from "./desktop";
 import { Glyph, type GlyphName } from "./icons";
@@ -26,7 +26,7 @@ type Dialog =
   | { kind: "link"; value: string }
   | FileDialog
   | { kind: "create" }
-  | { kind: "settings" }
+  | { kind: "settings"; section?: "Downloads" | "Connection" | "Bandwidth" | "Queue" | "Scheduler" | "RSS" | "Updates" | "Advanced" }
   | { kind: "vpn" }
   | { kind: "about" }
   | { kind: "remove" };
@@ -65,6 +65,7 @@ export function App() {
   const focusRef = useRef<string | null>(null);
   const anchorRef = useRef<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const trayRef = useRef<(command: string) => void>(() => undefined);
   focusRef.current = focus;
 
   function notify(message: string) {
@@ -165,13 +166,23 @@ export function App() {
     };
   }, [menu]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = menuRef.current;
     if (!menu || !node) return;
     const rect = node.getBoundingClientRect();
-    if (rect.bottom > window.innerHeight) node.style.top = `${Math.max(8, window.innerHeight - rect.height - 8)}px`;
-    if (rect.right > window.innerWidth) node.style.left = `${Math.max(8, window.innerWidth - rect.width - 8)}px`;
+    const left = rect.right > window.innerWidth ? Math.max(8, window.innerWidth - rect.width - 8) : rect.left;
+    const top = rect.bottom > window.innerHeight ? Math.max(8, window.innerHeight - rect.height - 8) : rect.top;
+    if (left !== rect.left) node.style.left = `${left}px`;
+    if (top !== rect.top) node.style.top = `${top}px`;
   }, [menu]);
+
+  useEffect(() => {
+    const host = window as Window & { fraghostTray?: (command: string) => void };
+    host.fraghostTray = (command) => trayRef.current(command);
+    return () => {
+      delete host.fraghostTray;
+    };
+  }, []);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -226,22 +237,22 @@ export function App() {
     }
   }
 
-  function toggleVpn() {
+  function toggleGhost() {
     if (!settings) return;
-    if (settings.vpn_enabled) {
+    if (settings.ghost_enabled) {
       void run(async () => {
-        setSettings(await api.saveSettings({ ...settings, vpn_enabled: false }));
-      }, "VPN off. Transfers use this connection directly.");
+        setSettings(await api.saveSettings({ ...settings, ghost_enabled: false }));
+      }, "Ghost Mode off. Transfers use this connection directly.");
       return;
     }
-    const ready = settings.proxy_type !== "none" && settings.proxy_host.trim() !== "" && settings.proxy_port > 0;
-    if (!ready) {
-      setDialog({ kind: "vpn" });
+    if (!settings.ghost_endpoint_id.trim()) {
+      setDialog({ kind: "settings", section: "Connection" });
+      notify("Add a trusted endpoint, then turn Ghost Mode on.");
       return;
     }
     void run(async () => {
-      setSettings(await api.saveSettings({ ...settings, vpn_enabled: true }));
-    }, `VPN on. BitTorrent traffic uses ${settings.proxy_host}:${settings.proxy_port}.`);
+      setSettings(await api.saveSettings({ ...settings, ghost_enabled: true }));
+    }, "Ghost Mode on. Transfers stay paused until a tunnel can carry them.");
   }
 
   async function act(action: string) {
@@ -264,7 +275,11 @@ export function App() {
       anchorRef.current = torrent.id;
     }
     setFocus(torrent.id);
-    setMenu({ x: event.clientX, y: event.clientY, ids });
+    const width = 220;
+    const height = 340;
+    const x = Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8));
+    const y = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8));
+    setMenu({ x, y, ids });
   }
 
   function copyMagnet(id: string) {
@@ -496,6 +511,18 @@ export function App() {
     );
   }
 
+  trayRef.current = (command) => {
+    if (command === "add") void openTorrentFiles();
+    if (command === "url") setDialog({ kind: "link", value: "" });
+    if (command === "create") setDialog({ kind: "create" });
+    if (command === "options") setDialog({ kind: "settings", section: "Connection" });
+  };
+
+  const ghostOn = settings?.ghost_enabled === true;
+  const ghostState = snapshot?.ghost?.state ?? "DISABLED";
+  const ghostSwitch = !ghostOn || ghostState === "DISABLED" ? "off" : ghostState === "BLOCKED" || ghostState === "ERROR" ? "blocked" : "on";
+  const detailTab = tab === "pieces" ? "general" : tab;
+
   return (
     <div
       className={`shell${native ? " native" : ""}${dragging ? " drop" : ""}`}
@@ -521,14 +548,14 @@ export function App() {
             type="button"
             className="vpn-switch"
             role="switch"
-            aria-checked={settings?.vpn_enabled === true}
-            aria-label="VPN"
-            data-state={stats?.vpn === "blocked" ? "blocked" : settings?.vpn_enabled ? "on" : "off"}
+            aria-checked={ghostOn}
+            aria-label="Ghost Mode"
+            data-state={ghostSwitch}
             disabled={!settings}
-            onClick={toggleVpn}
+            onClick={toggleGhost}
           >
             <span className="track" aria-hidden="true"><span className="knob" /></span>
-            VPN
+            Ghost
           </button>
           <span className="down">↓ {formatSpeed(stats?.download_rate ?? 0)}</span>
           <span className="up">↑ {formatSpeed(stats?.upload_rate ?? 0)}</span>
@@ -595,7 +622,6 @@ export function App() {
               <table>
                 <thead>
                   <tr>
-                    <th />
                     <SortHead className="col-queue" label="#" sortKey="queue_position" sort={sort} onSort={setSort} />
                     <SortHead label="Name" sortKey="name" sort={sort} onSort={setSort} />
                     <SortHead className="col-size" label="Size" sortKey="size" sort={sort} onSort={setSort} numeric />
@@ -613,19 +639,6 @@ export function App() {
                 <tbody>
                   {visible.map((torrent) => (
                     <tr key={torrent.id} data-selected={selected.includes(torrent.id)} data-state={torrent.state} onClick={(event) => chooseRow(torrent, event)} onContextMenu={(event) => openMenu(torrent, event)}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${torrent.name}`}
-                          checked={selected.includes(torrent.id)}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => {
-                            const on = event.target.checked;
-                            setSelected((current) => (on ? [...current, torrent.id] : current.filter((id) => id !== torrent.id)));
-                            setFocus(torrent.id);
-                          }}
-                        />
-                      </td>
                       <td className="num col-queue">{torrent.queue_position >= 0 ? torrent.queue_position + 1 : "—"}</td>
                       <td className="name" title={torrent.name}>{torrent.name}{torrent.force_start ? <span className="bolt">∗</span> : null}</td>
                       <td className="num col-size">{formatBytes(torrent.size)}</td>
@@ -667,17 +680,18 @@ export function App() {
           />
           <section className="detail" style={{ height: detailHeight }}>
             <div className="tabs" role="tablist">
-              {["general", "files", "trackers", "peers", "pieces", "speed"].map((item) => (
-                <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>
+              {["general", "files", "trackers", "peers", "speed"].map((item) => (
+                <button key={item} role="tab" aria-selected={detailTab === item} onClick={() => setTab(item)}>
                   {item[0].toUpperCase() + item.slice(1)}
                 </button>
               ))}
             </div>
+            {detail && detailTab === "general" && <PieceMap detail={detail} />}
             <div className="detail-body">
               {!detail && <p className="muted">Select a torrent to see files, peers, and trackers.</p>}
               {detail && (
                 <Detail
-                  tab={tab}
+                  tab={detailTab}
                   detail={detail}
                   history={snapshot?.speed_history ?? []}
                   onPatch={(patch) => void run(() => api.update(detail.id, patch))}
@@ -697,15 +711,14 @@ export function App() {
       </div>
       <footer className="footer">
         <span>
-          {stats?.vpn === "on" ? `VPN ${stats.vpn_label}` : stats?.vpn === "blocked" ? "VPN waiting for a server" : "VPN off"}
+          {ghostOn ? `Ghost Mode ${ghostLabel(ghostState)}` : "Ghost Mode off"}
           {" · "}
           {stats?.dht ? `DHT ${stats.dht_nodes}` : "DHT off"}
           {" · "}port {stats?.listen_port || "—"}
-          {stats?.vpn === "on" || stats?.vpn === "blocked" ? "" : stats?.external_ip ? ` · ${stats.external_ip}` : ""}
+          {!ghostOn && stats?.vpn !== "on" && stats?.vpn !== "blocked" && stats?.external_ip ? ` · ${stats.external_ip}` : ""}
           {stats?.has_incoming ? " · incoming" : ""}
           {stats?.scheduler_enabled && stats.schedule === "L" ? " · scheduler limited" : ""}
           {stats?.scheduler_enabled && stats.schedule === "S" ? " · scheduler stopped" : ""}
-          {snapshot?.ghost && snapshot.ghost.state !== "DISABLED" ? ` · Ghost Mode ${ghostLabel(snapshot.ghost.state)}` : ""}
         </span>
         <span>
           <b>{torrents.length}</b> torrents
@@ -792,6 +805,7 @@ export function App() {
       {dialog?.kind === "settings" && settings && (
         <SettingsDialog
           settings={settings}
+          initialSection={dialog.section}
           ghost={snapshot?.ghost ?? null}
           onRefresh={async () => setSnapshot(await api.state(focusRef.current))}
           update={update}
@@ -1233,17 +1247,6 @@ function Detail({ tab, detail, history, onPatch, onOpen, onCopy, onExport, onRec
       </div>
     );
   }
-  if (tab === "pieces") {
-    return (
-      <div>
-        <p className="muted">{detail.have_pieces} / {detail.num_pieces} pieces · {formatBytes(detail.piece_size)} each</p>
-        <div className="pieces">
-          {detail.pieces.map((value, index) => <i key={index} data-v={String(value)} />)}
-        </div>
-        <div className="legend"><span>Have</span><span>Partial</span><span>Missing</span></div>
-      </div>
-    );
-  }
   if (tab === "speed") {
     const width = 640;
     const height = 140;
@@ -1384,8 +1387,21 @@ function MenuItem({ glyph, label, disabled, danger, onClick }: { glyph: GlyphNam
   );
 }
 
+function PieceMap({ detail }: { detail: NonNullable<Snapshot["detail"]> }) {
+  return (
+    <div className="piece-bar">
+      <p className="muted">{detail.have_pieces} / {detail.num_pieces} pieces · {formatBytes(detail.piece_size)} each</p>
+      <div className="pieces">
+        {detail.pieces.map((value, index) => <i key={index} data-v={String(value)} />)}
+      </div>
+      <div className="legend"><span>Have</span><span>Partial</span><span>Missing</span></div>
+    </div>
+  );
+}
+
 function SettingsDialog({
   settings,
+  initialSection = "Downloads",
   ghost,
   onRefresh,
   update,
@@ -1396,6 +1412,7 @@ function SettingsDialog({
   onInstall,
 }: {
   settings: Settings;
+  initialSection?: (typeof SETTING_TABS)[number];
   ghost: GhostStatus | null;
   onRefresh: () => Promise<void>;
   update: UpdateStatus | null;
@@ -1406,7 +1423,7 @@ function SettingsDialog({
   onInstall: () => void;
 }) {
   const [draft, setDraft] = useState(settings);
-  const [section, setSection] = useState<(typeof SETTING_TABS)[number]>("Downloads");
+  const [section, setSection] = useState<(typeof SETTING_TABS)[number]>(initialSection);
   const [error, setError] = useState("");
   const [endpointName, setEndpointName] = useState("");
   const [endpointHost, setEndpointHost] = useState("");
@@ -1495,7 +1512,7 @@ function SettingsDialog({
                 <label className="check"><input type="checkbox" checked={draft.lsd} onChange={(event) => setDraft({ ...draft, lsd: event.target.checked })} /> Local peer discovery</label>
                 <label className="check"><input type="checkbox" checked={draft.utp} onChange={(event) => setDraft({ ...draft, utp: event.target.checked })} /> µTP</label>
                 <label className="check"><input type="checkbox" checked={draft.ghost_enabled} onChange={(event) => setDraft({ ...draft, ghost_enabled: event.target.checked })} /> Ghost Mode</label>
-                <p className="muted">Ghost Mode is separate from the proxy switch. It only talks to WireGuard endpoints you add here, and it never includes a public server. If the selected one fails, fraghost tries your other saved endpoints and retries. While it is on, BitTorrent stays paused. A verified handshake still does not put BitTorrent inside the tunnel, so it is not protected. UDP is not tunneled. Other programs stay on your normal connection.</p>
+                <p className="muted">The Ghost switch in the title bar turns this on. It only talks to WireGuard endpoints you add here, and it never includes a public server. If the selected one fails, fraghost tries your other saved endpoints and retries. While it is on, BitTorrent stays paused. A verified handshake still does not put BitTorrent inside the tunnel, so it is not protected. UDP is not tunneled. Other programs stay on your normal connection. The proxy below is separate and is not the Ghost switch.</p>
                 <p className="muted">{ghostText(draft.ghost_enabled, ghost)}</p>
                 {ghost?.kill_switch && <p className="muted">The kill switch is holding BitTorrent. Public IPv6 listen is blocked. Torrent name lookup stays on the fail-closed path. RSS, updates, and other programs stay outside.</p>}
                 <label className="field"><span>Local public key</span><input readOnly value={ghost?.public_key || "Created on this computer when you add an endpoint. It is not uploaded."} spellCheck={false} /></label>

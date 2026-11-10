@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> None:
             httpd.shutdown()
         return
 
-    shell = _Shell()
+    shell = _Shell(engine)
 
     class Desktop:
         def pick_torrents(self):
@@ -181,8 +181,9 @@ def _window_color() -> str:
 class _Shell:
     """Frameless window controls and a tray icon so closing the window leaves fraghost running."""
 
-    def __init__(self) -> None:
+    def __init__(self, engine=None) -> None:
         self.window = None
+        self.engine = engine
         self.quitting = False
         self.tray_ready = False
         self._tray = None
@@ -219,43 +220,51 @@ class _Shell:
             icon = Icon(str(_ICON), Size(256, 256))
             small = Icon(str(_ICON), Size(16, 16))
             _assign_window_icon(form, icon, small)
+            from System.Drawing import Font
+            from System.Windows.Forms import Padding, ToolStripSeparator
+
             menu = ContextMenuStrip()
-            show_item = ToolStripMenuItem("Show fraghost")
-            quit_item = ToolStripMenuItem("Quit")
-
-            def on_show(_sender, _args) -> None:
-                try:
-                    self.show()
-                except Exception as exc:
-                    print(f"Could not show the window ({exc}).", flush=True)
-
-            def on_quit(_sender, _args) -> None:
-                try:
-                    self.quit()
-                except Exception as exc:
-                    print(f"Could not quit ({exc}).", flush=True)
-
-            show_item.Click += on_show
-            quit_item.Click += on_quit
-            menu.Items.Add(show_item)
-            menu.Items.Add(quit_item)
             menu.ShowImageMargin = False
             menu.ShowCheckMargin = False
-            from System.Drawing import Font
-            from System.Windows.Forms import Padding
-
             menu.Font = Font("Segoe UI", 10.0)
-            menu.Padding = Padding(6)
-            for item in (show_item, quit_item):
-                item.Padding = Padding(10, 6, 10, 6)
+            menu.Padding = Padding(4, 6, 4, 6)
+            entries = [
+                ("show", "Show fraghost"),
+                ("sep", ""),
+                ("add", "Add torrent..."),
+                ("url", "Add torrent from URL..."),
+                ("create", "Create new torrent..."),
+                ("sep", ""),
+                ("start", "Start all torrents"),
+                ("pause", "Pause all torrents"),
+                ("stop", "Stop all torrents"),
+                ("sep", ""),
+                ("options", "Options..."),
+                ("exit", "Exit"),
+            ]
+            items = []
+            show_item = None
+            for kind, label in entries:
+                if kind == "sep":
+                    menu.Items.Add(ToolStripSeparator())
+                    continue
+                item = ToolStripMenuItem(label)
+                item.Padding = Padding(12, 4, 16, 4)
                 item.AutoSize = True
+                item.Click += _tray_click(self, kind)
+                menu.Items.Add(item)
+                items.append(item)
+                if kind == "show":
+                    show_item = item
 
             def on_opening(_sender, _args) -> None:
                 palette = _tray_palette()
                 menu.BackColor = palette["back"]
                 menu.ForeColor = palette["fg"]
-                show_item.ForeColor = palette["fg"]
-                quit_item.ForeColor = palette["fg"]
+                if show_item is not None:
+                    show_item.Text = "Hide fraghost" if _window_open(self) else "Show fraghost"
+                for item in items:
+                    item.ForeColor = palette["fg"]
                 menu.Renderer = _tray_renderer(palette)
                 self._kept.append(menu.Renderer)
 
@@ -291,7 +300,7 @@ class _Shell:
             _assign_window_icon(form, icon, small)
             self._kept.append(hook)
             self._tray = tray
-            self._kept.extend([icon, small, menu, show_item, quit_item, tray, menu.Font])
+            self._kept.extend([icon, small, menu, tray, menu.Font, *items])
             self.tray_ready = True
 
         try:
@@ -624,6 +633,60 @@ def _clr() -> None:
     clr.AddReference("System.Windows.Forms")
 
 
+def _tray_click(shell, kind: str):
+    def handle(_sender, _args) -> None:
+        try:
+            _run_tray(shell, kind)
+        except Exception as exc:
+            print(f"Tray action failed ({exc}).", flush=True)
+
+    return handle
+
+
+def _window_open(shell) -> bool:
+    form = shell._form()
+    if form is None:
+        return False
+    try:
+        from System.Windows.Forms import FormWindowState
+
+        return bool(form.Visible) and form.WindowState != FormWindowState.Minimized
+    except Exception:
+        return False
+
+
+def _run_tray(shell, kind: str) -> None:
+    if kind == "show":
+        if _window_open(shell):
+            shell.hide()
+        else:
+            shell.show()
+        return
+    if kind == "exit":
+        shell.quit()
+        return
+    if kind in ("start", "pause", "stop"):
+        manual = {"start": "started", "pause": "paused", "stop": "stopped"}[kind]
+        engine = shell.engine
+        if engine is not None:
+            threading.Thread(target=engine.set_all, args=(manual,), daemon=True).start()
+        return
+    if kind not in ("add", "url", "create", "options"):
+        return
+    shell.show()
+    window = shell.window
+    if window is None:
+        return
+
+    def tell() -> None:
+        try:
+            window.evaluate_js(f"window.fraghostTray && window.fraghostTray('{kind}')")
+        except Exception as exc:
+            print(f"Could not open {kind} ({exc}).", flush=True)
+
+    threading.Thread(target=tell, daemon=True).start()
+
+
 def _tray_palette() -> dict:
     _clr()
     theme = str(load_settings().get("theme") or "system")
@@ -643,6 +706,21 @@ def _tray_palette() -> dict:
         "hover": Color.FromArgb(255, 244, 244, 244),
         "border": Color.FromArgb(255, 226, 226, 226),
     }
+
+
+def _round_path(x: int, y: int, width: int, height: int, radius: int):
+    _clr()
+    from System.Drawing.Drawing2D import GraphicsPath
+
+    path = GraphicsPath()
+    radius = max(1, min(radius, width // 2, height // 2))
+    diameter = radius * 2
+    path.AddArc(x, y, diameter, diameter, 180, 90)
+    path.AddArc(x + width - diameter, y, diameter, diameter, 270, 90)
+    path.AddArc(x + width - diameter, y + height - diameter, diameter, diameter, 0, 90)
+    path.AddArc(x, y + height - diameter, diameter, diameter, 90, 90)
+    path.CloseFigure()
+    return path
 
 
 def _round_menu(menu, radius: int) -> None:
@@ -677,7 +755,7 @@ _renderer_type = None
 def _install_tray_renderer() -> type:
     _clr()
     from System.Drawing import Pen, SolidBrush
-    from System.Drawing.Drawing2D import GraphicsPath, SmoothingMode
+    from System.Drawing.Drawing2D import SmoothingMode
     from System.Windows.Forms import ToolStripProfessionalRenderer
 
     class Renderer(ToolStripProfessionalRenderer):
@@ -689,10 +767,14 @@ def _install_tray_renderer() -> type:
             event.Graphics.Clear(self.palette["back"])
 
         def OnRenderToolStripBorder(self, event) -> None:
+            graphics = event.Graphics
+            graphics.SmoothingMode = SmoothingMode.AntiAlias
             bounds = event.AffectedBounds
+            path = _round_path(0, 0, max(1, int(bounds.Width) - 1), max(1, int(bounds.Height) - 1), 12)
             pen = Pen(self.palette["border"])
-            event.Graphics.DrawRectangle(pen, 0, 0, int(bounds.Width) - 1, int(bounds.Height) - 1)
+            graphics.DrawPath(pen, path)
             pen.Dispose()
+            path.Dispose()
 
         def OnRenderMenuItemBackground(self, event) -> None:
             item = event.Item
@@ -703,24 +785,33 @@ def _install_tray_renderer() -> type:
             inset = 4
             width = max(1, int(item.Width) - inset * 2)
             height = max(1, int(item.Height) - 2)
-            radius = min(8, height // 2)
-            path = GraphicsPath()
-            diameter = radius * 2
-            x = inset
-            y = 1
-            path.AddArc(x, y, diameter, diameter, 180, 90)
-            path.AddArc(x + width - diameter, y, diameter, diameter, 270, 90)
-            path.AddArc(x + width - diameter, y + height - diameter, diameter, diameter, 0, 90)
-            path.AddArc(x, y + height - diameter, diameter, diameter, 90, 90)
-            path.CloseFigure()
             brush = SolidBrush(self.palette["hover"])
-            graphics.FillPath(brush, path)
+            radius = min(8, width // 2, height // 2)
+            if radius < 1:
+                graphics.FillRectangle(brush, inset, 1, width, height)
+            else:
+                path = _round_path(inset, 1, width, height, radius)
+                graphics.FillPath(brush, path)
+                path.Dispose()
             brush.Dispose()
-            path.Dispose()
 
         def OnRenderItemText(self, event) -> None:
-            event.TextColor = self.palette["fg"]
-            ToolStripProfessionalRenderer.OnRenderItemText(self, event)
+            from System.Drawing import RectangleF, SolidBrush, StringAlignment, StringFormat, StringTrimming
+            from System.Drawing import StringFormatFlags
+
+            item = event.Item
+            graphics = event.Graphics
+            bounds = event.TextRectangle
+            rect = RectangleF(float(bounds.X), 0.0, float(max(1, bounds.Width)), float(item.Height))
+            fmt = StringFormat()
+            fmt.Alignment = StringAlignment.Near
+            fmt.LineAlignment = StringAlignment.Center
+            fmt.Trimming = StringTrimming.EllipsisCharacter
+            fmt.FormatFlags = StringFormatFlags.NoWrap
+            brush = SolidBrush(self.palette["fg"])
+            graphics.DrawString(str(item.Text), item.Font, brush, rect, fmt)
+            brush.Dispose()
+            fmt.Dispose()
 
         def OnRenderSeparator(self, event) -> None:
             pen = Pen(self.palette["border"])

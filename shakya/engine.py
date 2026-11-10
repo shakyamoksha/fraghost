@@ -334,6 +334,19 @@ class Engine:
             self._log(f'Added "{name}"')
             return self._summary(handle, meta, handle.status())
 
+    def set_all(self, manual: str) -> int:
+        if manual not in ("started", "paused", "stopped"):
+            raise ValueError("Unknown action")
+        with self._lock:
+            count = 0
+            for tid, handle in list(self._handles.items()):
+                meta = self._records.get(tid)
+                if meta is None or not handle.is_valid():
+                    continue
+                self._set_manual(handle, meta, manual)
+                count += 1
+            return count
+
     def action(self, tid: str, name: str) -> dict:
         with self._lock:
             handle, meta = self._require(tid)
