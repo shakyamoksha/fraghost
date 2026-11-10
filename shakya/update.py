@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import tempfile
 import threading
@@ -15,9 +14,8 @@ import urllib.request
 from pathlib import Path
 
 from . import __version__
-from .build_info import BUILD, UPDATE_REPO
+from .build_info import BUILD
 
-_REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _HOSTS = {
     "api.github.com",
     "github.com",
@@ -26,6 +24,7 @@ _HOSTS = {
     "github-releases.githubusercontent.com",
 }
 _SETUP_NAMES = ("fraghost-setup.exe", "CairnSetup.exe")
+_OFFICIAL_REPO = "shakyamoksha/fraghost"
 _MAX_BYTES = 500 * 1024 * 1024
 _INTERVAL = 6 * 60 * 60
 
@@ -38,13 +37,9 @@ def update_mode(settings: dict | None) -> str:
 
 
 def repo_name(settings: dict | None) -> str:
-    chosen = str((settings or {}).get("update_repo") or "").strip()
-    if _REPO.fullmatch(chosen):
-        return chosen
-    baked = str(UPDATE_REPO or "").strip()
-    if _REPO.fullmatch(baked):
-        return baked
-    return ""
+    """The published fraghost builds. A saved repository name is ignored."""
+    del settings
+    return _OFFICIAL_REPO
 
 
 def _check_url(url: str) -> None:
@@ -153,7 +148,7 @@ class Updates:
     def _fetch(self, settings: dict | None) -> dict:
         status = _blank(settings)
         if not status["repo"]:
-            status["error"] = "Set a GitHub repository under Settings → Updates to receive updates."
+            status["error"] = "Could not reach the update feed."
             return status
         try:
             release = _get_json(f"https://api.github.com/repos/{status['repo']}/releases/latest")

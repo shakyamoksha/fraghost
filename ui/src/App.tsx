@@ -86,7 +86,7 @@ export function App() {
       stop = true;
       window.clearInterval(timer);
     };
-  }, [locked, settings?.update_mode, settings?.update_repo]);
+  }, [locked, settings?.update_mode]);
 
   useEffect(() => {
     if (!update?.available || update.latest_build <= toldUpdate.current) return;
@@ -1671,10 +1671,10 @@ function SettingsDialog({
                 {draft.update_mode === "auto" && update?.current_build === 0 && (
                   <p className="muted">This is a development copy, so it only tells you. An installed copy can install on its own.</p>
                 )}
-                <label className="field"><span>GitHub repository</span><input value={draft.update_repo} onChange={(event) => setDraft({ ...draft, update_repo: event.target.value })} placeholder="owner/fraghost" spellCheck={false} /></label>
-                <p className="muted">{draft.update_mode !== settings.update_mode || draft.update_repo !== settings.update_repo ? "Save to use this choice." : updateLine(draft.update_mode, update)}</p>
+                <p className="muted">fraghost looks for its own updates. There is nothing else to enter.</p>
+                <p className="muted">{draft.update_mode !== settings.update_mode ? "Save to use this choice." : updateLine(draft.update_mode, update)}</p>
                 <div className="controls">
-                  <button className="btn" type="button" disabled={draft.update_mode !== settings.update_mode || draft.update_repo !== settings.update_repo} onClick={onCheck}>Check now</button>
+                  <button className="btn" type="button" disabled={draft.update_mode !== settings.update_mode} onClick={onCheck}>Check now</button>
                   {update?.available && (
                     <button className="btn-primary" type="button" disabled={updating} onClick={onInstall}>{updating ? "Updating…" : "Update now"}</button>
                   )}

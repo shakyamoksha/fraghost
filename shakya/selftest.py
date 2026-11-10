@@ -23,8 +23,13 @@ def main() -> None:
         pass
     else:
         raise AssertionError("a bad update mode was accepted")
-    quiet = updates.check({"update_mode": "off", "update_repo": "owner/fraghost"})
+    from .update import repo_name
+
+    assert repo_name({"update_repo": "other/name"}) == "shakyamoksha/fraghost"
+    assert repo_name({}) == "shakyamoksha/fraghost"
+    quiet = updates.check({"update_mode": "off", "update_repo": "other/name"})
     assert quiet["available"] is False and quiet["mode"] == "off" and quiet["error"] == ""
+    assert quiet["repo"] == "shakyamoksha/fraghost"
     home = tempfile.mkdtemp(prefix="shakya-selftest-")
     os.environ["SHAKYA_HOME"] = home
     content = Path(home) / "seed"
