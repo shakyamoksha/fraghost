@@ -541,6 +541,19 @@ class Engine:
         self._log(f'Created torrent "{result["name"]}"')
         return result
 
+    def rate_limits(self) -> tuple[int, int]:
+        with self._lock:
+            return int(self.settings.get("download_limit") or 0), int(self.settings.get("upload_limit") or 0)
+
+    def set_rate_limit(self, direction: str, kilobytes: int) -> None:
+        if direction == "down":
+            key = "download_limit"
+        elif direction == "up":
+            key = "upload_limit"
+        else:
+            raise ValueError("Unknown limit")
+        self.update_settings({key: max(0, int(kilobytes))})
+
     def update_settings(self, patch: dict) -> dict:
         if not isinstance(patch, dict):
             raise ValueError("Settings must be an object")

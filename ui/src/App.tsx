@@ -40,6 +40,37 @@ const FILTERS: { id: string; label: string }[] = [
   { id: "stopped", label: "Stopped" },
 ];
 
+const COLUMNS: { id: string; label: string }[] = [
+  { id: "queue", label: "#" },
+  { id: "name", label: "Name" },
+  { id: "size", label: "Size" },
+  { id: "progress", label: "Progress" },
+  { id: "status", label: "Status" },
+  { id: "seeds", label: "Seeds" },
+  { id: "peers", label: "Peers" },
+  { id: "down", label: "Down" },
+  { id: "up", label: "Up" },
+  { id: "eta", label: "ETA" },
+  { id: "ratio", label: "Ratio" },
+  { id: "label", label: "Label" },
+];
+
+function storedColumns(): Set<string> {
+  const all = COLUMNS.map((column) => column.id);
+  try {
+    const raw = localStorage.getItem("fraghost.columns");
+    if (!raw) return new Set(all);
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set(all);
+    const known = new Set(all);
+    const next = new Set(parsed.filter((id): id is string => typeof id === "string" && known.has(id)));
+    next.add("name");
+    return next;
+  } catch {
+    return new Set(all);
+  }
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -61,7 +92,10 @@ export function App() {
   const [updating, setUpdating] = useState(false);
   const toldUpdate = useRef(0);
   const [menu, setMenu] = useState<{ x: number; y: number; ids: string[] } | null>(null);
+  const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number } | null>(null);
+  const [columns, setColumns] = useState<Set<string>>(storedColumns);
   const menuRef = useRef<HTMLDivElement>(null);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
   const focusRef = useRef<string | null>(null);
   const anchorRef = useRef<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -151,10 +185,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!menu) return;
-    function close() { setMenu(null); }
+    if (!menu && !headerMenu) return;
+    function close() {
+      setMenu(null);
+      setHeaderMenu(null);
+    }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenu(null);
+      if (event.key === "Escape") close();
     }
     window.addEventListener("click", close);
     window.addEventListener("keydown", onKey);
@@ -164,17 +201,18 @@ export function App() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", close);
     };
-  }, [menu]);
+  }, [menu, headerMenu]);
 
   useLayoutEffect(() => {
-    const node = menuRef.current;
-    if (!menu || !node) return;
-    const rect = node.getBoundingClientRect();
-    const left = rect.right > window.innerWidth ? Math.max(8, window.innerWidth - rect.width - 8) : rect.left;
-    const top = rect.bottom > window.innerHeight ? Math.max(8, window.innerHeight - rect.height - 8) : rect.top;
-    if (left !== rect.left) node.style.left = `${left}px`;
-    if (top !== rect.top) node.style.top = `${top}px`;
-  }, [menu]);
+    for (const node of [menuRef.current, headerMenuRef.current]) {
+      if (!node) continue;
+      const rect = node.getBoundingClientRect();
+      const left = rect.right > window.innerWidth ? Math.max(8, window.innerWidth - rect.width - 8) : rect.left;
+      const top = rect.bottom > window.innerHeight ? Math.max(8, window.innerHeight - rect.height - 8) : rect.top;
+      if (left !== rect.left) node.style.left = `${left}px`;
+      if (top !== rect.top) node.style.top = `${top}px`;
+    }
+  }, [menu, headerMenu]);
 
   useEffect(() => {
     const host = window as Window & { fraghostTray?: (command: string) => void };
@@ -279,7 +317,32 @@ export function App() {
     const height = 340;
     const x = Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8));
     const y = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8));
+    setHeaderMenu(null);
     setMenu({ x, y, ids });
+  }
+
+  function openHeaderMenu(event: ReactMouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu(null);
+    const width = 180;
+    const height = 380;
+    setHeaderMenu({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
+    });
+  }
+
+  function toggleColumn(id: string) {
+    if (id === "name") return;
+    setColumns((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      next.add("name");
+      localStorage.setItem("fraghost.columns", JSON.stringify([...next]));
+      return next;
+    });
   }
 
   function copyMagnet(id: string) {
@@ -516,6 +579,7 @@ export function App() {
     if (command === "url") setDialog({ kind: "link", value: "" });
     if (command === "create") setDialog({ kind: "create" });
     if (command === "options") setDialog({ kind: "settings", section: "Connection" });
+    if (command === "limits") setDialog({ kind: "settings", section: "Bandwidth" });
   };
 
   const ghostOn = settings?.ghost_enabled === true;
@@ -540,6 +604,19 @@ export function App() {
         <div className="brand pywebview-drag-region" onMouseDown={startTitleDrag} onDoubleClick={() => native && windowToggleMaximize()}>
           <Mark />
           <span className="word">fraghost</span>
+        </div>
+        <div className="actions">
+          <button type="button" className="btn icon-btn" title="Add" aria-label="Add" onClick={() => void openTorrentFiles()}><Glyph name="add" /></button>
+          <button type="button" className="btn icon-btn" title="Link" aria-label="Link" onClick={() => setDialog({ kind: "link", value: "" })}><Glyph name="link" /></button>
+          <button type="button" className="btn icon-btn" title="Create" aria-label="Create" onClick={() => setDialog({ kind: "create" })}><Glyph name="create" /></button>
+          <button type="button" className="btn icon-btn" title="Start" aria-label="Start" disabled={!selected.length} onClick={() => void act("resume")}><Glyph name="play" /></button>
+          <button type="button" className="btn icon-btn" title="Pause" aria-label="Pause" disabled={!selected.length} onClick={() => void act("pause")}><Glyph name="pause" /></button>
+          <button type="button" className="btn icon-btn" title="Stop" aria-label="Stop" disabled={!selected.length} onClick={() => void act("stop")}><Glyph name="stop" /></button>
+          <button type="button" className="btn icon-btn" title="Force" aria-label="Force" disabled={!selected.length} onClick={() => void act("force_start")}><Glyph name="force" /></button>
+          <button type="button" className="btn icon-btn" title="Up" aria-label="Up" disabled={!selected.length} onClick={() => void act("queue_up")}><Glyph name="up" /></button>
+          <button type="button" className="btn icon-btn" title="Down" aria-label="Down" disabled={!selected.length} onClick={() => void act("queue_down")}><Glyph name="down" /></button>
+          <button type="button" className="btn icon-btn" title="Open" aria-label="Open" disabled={selected.length !== 1} onClick={() => selected[0] && void run(() => api.open(selected[0]))}><Glyph name="folder" /></button>
+          <button type="button" className="btn-danger icon-btn" title="Remove" aria-label="Remove" disabled={!selected.length} onClick={() => (settings?.confirm_remove === false ? void removeSelected(false) : setDialog({ kind: "remove" }))}><Glyph name="trash" /></button>
         </div>
         <div className="title-gap pywebview-drag-region" onMouseDown={startTitleDrag} onDoubleClick={() => native && windowToggleMaximize()} />
         <input className="search" placeholder="Filter" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter torrents" />
@@ -569,48 +646,87 @@ export function App() {
           </div>
         )}
       </header>
-      <div className="toolbar">
-        <button type="button" className="btn icon-btn" title="Add" onClick={() => void openTorrentFiles()}><Glyph name="add" /><span>Add</span></button>
-        <button type="button" className="btn icon-btn" title="Link" onClick={() => setDialog({ kind: "link", value: "" })}><Glyph name="link" /><span>Link</span></button>
-        <button type="button" className="btn icon-btn" title="Create" onClick={() => setDialog({ kind: "create" })}><Glyph name="create" /><span>Create</span></button>
-        <button type="button" className="btn icon-btn" title="Start" disabled={!selected.length} onClick={() => void act("resume")}><Glyph name="play" /><span>Start</span></button>
-        <button type="button" className="btn icon-btn" title="Pause" disabled={!selected.length} onClick={() => void act("pause")}><Glyph name="pause" /><span>Pause</span></button>
-        <button type="button" className="btn icon-btn" title="Stop" disabled={!selected.length} onClick={() => void act("stop")}><Glyph name="stop" /><span>Stop</span></button>
-        <button type="button" className="btn icon-btn" title="Force" disabled={!selected.length} onClick={() => void act("force_start")}><Glyph name="force" /><span>Force</span></button>
-        <button type="button" className="btn icon-btn" title="Up" disabled={!selected.length} onClick={() => void act("queue_up")}><Glyph name="up" /><span>Up</span></button>
-        <button type="button" className="btn icon-btn" title="Down" disabled={!selected.length} onClick={() => void act("queue_down")}><Glyph name="down" /><span>Down</span></button>
-        <button type="button" className="btn icon-btn" title="Open" disabled={selected.length !== 1} onClick={() => selected[0] && void run(() => api.open(selected[0]))}><Glyph name="folder" /><span>Open</span></button>
-        <button type="button" className="btn-danger icon-btn" title="Remove" disabled={!selected.length} onClick={() => (settings?.confirm_remove === false ? void removeSelected(false) : setDialog({ kind: "remove" }))}><Glyph name="trash" /><span>Remove</span></button>
-        <button type="button" className="btn icon-btn" title="Settings" onClick={() => setDialog({ kind: "settings" })}><Glyph name="gear" /><span>Settings</span></button>
-      </div>
       {offline && <div className="banner">fraghost isn't reachable. The local engine may still be starting.</div>}
       <div className="workspace">
         <aside>
-          <div className="nav-label">Transfers</div>
-          {FILTERS.map((item) => (
-            <button key={item.id} className="nav-btn" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>
-              <strong>{item.label}</strong>
-              <em>{counts[item.id as keyof typeof counts]}</em>
+          <div className="nav-scroll">
+            <div className="nav-label">Transfers</div>
+            {FILTERS.map((item) => (
+              <button key={item.id} className="nav-btn" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>
+                <strong>{item.label}</strong>
+                <em>{counts[item.id as keyof typeof counts]}</em>
+              </button>
+            ))}
+            {counts.error > 0 && (
+              <button className="nav-btn error" aria-pressed={filter === "error"} onClick={() => setFilter("error")}>
+                <strong>Error</strong>
+                <em>{counts.error}</em>
+              </button>
+            )}
+            <div className="nav-label">Labels</div>
+            {(snapshot?.labels ?? []).length === 0 && <div className="nav-btn"><strong style={{ color: "var(--faint)" }}>None yet</strong></div>}
+            {(snapshot?.labels ?? []).map((label) => (
+              <button key={label} className="nav-btn" aria-pressed={filter === `label:${label}`} onClick={() => setFilter(`label:${label}`)}>
+                <strong>{label}</strong>
+                <em>{torrents.filter((torrent) => torrent.label === label).length}</em>
+              </button>
+            ))}
+          </div>
+          <div className="nav-foot">
+            <button type="button" className="nav-btn nav-settings" onClick={() => setDialog({ kind: "settings" })}>
+              <Glyph name="gear" />
+              <strong>Settings</strong>
             </button>
-          ))}
-          {counts.error > 0 && (
-            <button className="nav-btn error" aria-pressed={filter === "error"} onClick={() => setFilter("error")}>
-              <strong>Error</strong>
-              <em>{counts.error}</em>
-            </button>
-          )}
-          <div className="nav-label">Labels</div>
-          {(snapshot?.labels ?? []).length === 0 && <div className="nav-btn"><strong style={{ color: "var(--faint)" }}>None yet</strong></div>}
-          {(snapshot?.labels ?? []).map((label) => (
-            <button key={label} className="nav-btn" aria-pressed={filter === `label:${label}`} onClick={() => setFilter(`label:${label}`)}>
-              <strong>{label}</strong>
-              <em>{torrents.filter((torrent) => torrent.label === label).length}</em>
-            </button>
-          ))}
+          </div>
         </aside>
         <div className="column">
           <div className="table-scroll">
-            {visible.length === 0 ? (
+            <table>
+              <thead onContextMenu={openHeaderMenu}>
+                <tr>
+                  {columns.has("queue") && <SortHead className="col-queue" label="#" sortKey="queue_position" sort={sort} onSort={setSort} />}
+                  {columns.has("name") && <SortHead label="Name" sortKey="name" sort={sort} onSort={setSort} />}
+                  {columns.has("size") && <SortHead className="col-size" label="Size" sortKey="size" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("progress") && <SortHead label="Progress" sortKey="progress" sort={sort} onSort={setSort} />}
+                  {columns.has("status") && <SortHead label="Status" sortKey="state" sort={sort} onSort={setSort} />}
+                  {columns.has("seeds") && <SortHead className="col-seeds" label="Seeds" sortKey="seeds_connected" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("peers") && <SortHead className="col-peers" label="Peers" sortKey="peers_connected" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("down") && <SortHead className="col-down" label="Down" sortKey="download_rate" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("up") && <SortHead className="col-up" label="Up" sortKey="upload_rate" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("eta") && <SortHead className="col-eta" label="ETA" sortKey="eta" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("ratio") && <SortHead className="col-ratio" label="Ratio" sortKey="ratio" sort={sort} onSort={setSort} numeric />}
+                  {columns.has("label") && <SortHead className="col-label" label="Label" sortKey="label" sort={sort} onSort={setSort} />}
+                </tr>
+              </thead>
+              {visible.length > 0 && (
+                <tbody>
+                  {visible.map((torrent) => (
+                    <tr key={torrent.id} data-selected={selected.includes(torrent.id)} data-state={torrent.state} onClick={(event) => chooseRow(torrent, event)} onContextMenu={(event) => openMenu(torrent, event)}>
+                      {columns.has("queue") && <td className="num col-queue">{torrent.queue_position >= 0 ? torrent.queue_position + 1 : "—"}</td>}
+                      {columns.has("name") && <td className="name" title={torrent.name}>{torrent.name}{torrent.force_start ? <span className="bolt">∗</span> : null}</td>}
+                      {columns.has("size") && <td className="num col-size">{formatBytes(torrent.size)}</td>}
+                      {columns.has("progress") && (
+                        <td>
+                          <div className="progress-cell">
+                            <div className="bar" aria-hidden="true"><span style={{ width: `${Math.min(100, torrent.progress * 100)}%` }} /></div>
+                            <span className="num">{formatPercent(torrent.progress)}</span>
+                          </div>
+                        </td>
+                      )}
+                      {columns.has("status") && <td><span className="status" data-state={torrent.state}><i />{stateLabel(torrent.state)}</span></td>}
+                      {columns.has("seeds") && <td className="num col-seeds">{swarm(torrent.seeds_connected, torrent.seeds_total)}</td>}
+                      {columns.has("peers") && <td className="num col-peers">{swarm(torrent.peers_connected, torrent.peers_total)}</td>}
+                      {columns.has("down") && <td className="num col-down">{formatSpeed(torrent.download_rate)}</td>}
+                      {columns.has("up") && <td className="num col-up">{formatSpeed(torrent.upload_rate)}</td>}
+                      {columns.has("eta") && <td className="num col-eta">{formatEta(torrent.eta)}</td>}
+                      {columns.has("ratio") && <td className="num col-ratio">{formatRatio(torrent.ratio, torrent.uploaded)}</td>}
+                      {columns.has("label") && <td className="col-label">{torrent.label || "—"}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+            </table>
+            {visible.length === 0 && (
               <div className="empty">
                 <div>
                   {torrents.length === 0 && <Mark size={44} />}
@@ -618,48 +734,6 @@ export function App() {
                   <p>Add a .torrent file or a magnet link. Magnet metadata is fetched in the background, so the transfer can start immediately. fraghost is free software: no ads, no tracking, no bundled offers.</p>
                 </div>
               </div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <SortHead className="col-queue" label="#" sortKey="queue_position" sort={sort} onSort={setSort} />
-                    <SortHead label="Name" sortKey="name" sort={sort} onSort={setSort} />
-                    <SortHead className="col-size" label="Size" sortKey="size" sort={sort} onSort={setSort} numeric />
-                    <SortHead label="Progress" sortKey="progress" sort={sort} onSort={setSort} />
-                    <SortHead label="Status" sortKey="state" sort={sort} onSort={setSort} />
-                    <SortHead className="col-seeds" label="Seeds" sortKey="seeds_connected" sort={sort} onSort={setSort} numeric />
-                    <SortHead className="col-peers" label="Peers" sortKey="peers_connected" sort={sort} onSort={setSort} numeric />
-                    <SortHead className="col-down" label="Down" sortKey="download_rate" sort={sort} onSort={setSort} numeric />
-                    <SortHead className="col-up" label="Up" sortKey="upload_rate" sort={sort} onSort={setSort} numeric />
-                    <SortHead className="col-eta" label="ETA" sortKey="eta" sort={sort} onSort={setSort} numeric />
-                    <SortHead className="col-ratio" label="Ratio" sortKey="ratio" sort={sort} onSort={setSort} numeric />
-                    <SortHead className="col-label" label="Label" sortKey="label" sort={sort} onSort={setSort} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((torrent) => (
-                    <tr key={torrent.id} data-selected={selected.includes(torrent.id)} data-state={torrent.state} onClick={(event) => chooseRow(torrent, event)} onContextMenu={(event) => openMenu(torrent, event)}>
-                      <td className="num col-queue">{torrent.queue_position >= 0 ? torrent.queue_position + 1 : "—"}</td>
-                      <td className="name" title={torrent.name}>{torrent.name}{torrent.force_start ? <span className="bolt">∗</span> : null}</td>
-                      <td className="num col-size">{formatBytes(torrent.size)}</td>
-                      <td>
-                        <div className="progress-cell">
-                          <div className="bar" aria-hidden="true"><span style={{ width: `${Math.min(100, torrent.progress * 100)}%` }} /></div>
-                          <span className="num">{formatPercent(torrent.progress)}</span>
-                        </div>
-                      </td>
-                      <td><span className="status" data-state={torrent.state}><i />{stateLabel(torrent.state)}</span></td>
-                      <td className="num col-seeds">{swarm(torrent.seeds_connected, torrent.seeds_total)}</td>
-                      <td className="num col-peers">{swarm(torrent.peers_connected, torrent.peers_total)}</td>
-                      <td className="num col-down">{formatSpeed(torrent.download_rate)}</td>
-                      <td className="num col-up">{formatSpeed(torrent.upload_rate)}</td>
-                      <td className="num col-eta">{formatEta(torrent.eta)}</td>
-                      <td className="num col-ratio">{formatRatio(torrent.ratio, torrent.uploaded)}</td>
-                      <td className="col-label">{torrent.label || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             )}
           </div>
           <div
@@ -758,6 +832,30 @@ export function App() {
           <MenuItem glyph="announce" label="Reannounce" onClick={() => { const ids = menu.ids; setMenu(null); void actIds("reannounce", ids); }} />
           <hr />
           <MenuItem glyph="trash" label="Remove" danger onClick={() => { const ids = menu.ids; setMenu(null); setSelected(ids); if (settings?.confirm_remove === false) void removeSelected(false, ids); else setDialog({ kind: "remove" }); }} />
+        </div>
+      )}
+      {headerMenu && (
+        <div
+          ref={headerMenuRef}
+          className="context-menu column-menu"
+          role="menu"
+          style={{ left: headerMenu.x, top: headerMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          {COLUMNS.map((column) => (
+            <button
+              key={column.id}
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={columns.has(column.id)}
+              disabled={column.id === "name"}
+              onClick={() => toggleColumn(column.id)}
+            >
+              <span className="tick">{columns.has(column.id) ? "✓" : ""}</span>
+              {column.label}
+            </button>
+          ))}
         </div>
       )}
       <input ref={fileRef} type="file" accept=".torrent,application/x-bittorrent" multiple hidden onChange={(event) => void onFileInput(event.target.files)} />
@@ -1453,7 +1551,7 @@ function SettingsDialog({
   return (
     <div className="overlay">
       <form
-        className="dialog wide"
+        className="dialog wide settings-dialog"
         onSubmit={(event) => {
           event.preventDefault();
           onSave(draft).catch((reason: Error) => setError(reason.message));

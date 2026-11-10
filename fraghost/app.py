@@ -239,8 +239,6 @@ class _Shell:
                 ("pause", "Pause all torrents"),
                 ("stop", "Stop all torrents"),
                 ("sep", ""),
-                ("options", "Options..."),
-                ("exit", "Exit"),
             ]
             items = []
             show_item = None
@@ -257,15 +255,44 @@ class _Shell:
                 if kind == "show":
                     show_item = item
 
+            down_menu, down_choices = _speed_menu(self, "down", "Download limit")
+            up_menu, up_choices = _speed_menu(self, "up", "Upload limit")
+            menu.Items.Add(down_menu)
+            menu.Items.Add(up_menu)
+            menu.Items.Add(ToolStripSeparator())
+            options_item = ToolStripMenuItem("Options...")
+            exit_item = ToolStripMenuItem("Exit")
+            for extra, kind in ((options_item, "options"), (exit_item, "exit")):
+                extra.Padding = Padding(12, 4, 16, 4)
+                extra.AutoSize = True
+                extra.Click += _tray_click(self, kind)
+                menu.Items.Add(extra)
+                items.append(extra)
+            items.extend([down_menu, up_menu, *(choice[2] for choice in down_choices), *(choice[2] for choice in up_choices)])
+
             def on_opening(_sender, _args) -> None:
                 palette = _tray_palette()
                 menu.BackColor = palette["back"]
                 menu.ForeColor = palette["fg"]
                 if show_item is not None:
                     show_item.Text = "Hide fraghost" if _window_open(self) else "Show fraghost"
+                current_down, current_up = (0, 0)
+                if self.engine is not None:
+                    try:
+                        current_down, current_up = self.engine.rate_limits()
+                    except Exception:
+                        pass
+                _mark_speeds(down_choices, current_down)
+                _mark_speeds(up_choices, current_up)
+                menu.Renderer = _tray_renderer(palette)
                 for item in items:
                     item.ForeColor = palette["fg"]
-                menu.Renderer = _tray_renderer(palette)
+                for dropdown in (down_menu.DropDown, up_menu.DropDown):
+                    dropdown.ShowImageMargin = False
+                    dropdown.ShowCheckMargin = False
+                    dropdown.BackColor = palette["back"]
+                    dropdown.ForeColor = palette["fg"]
+                    dropdown.Renderer = menu.Renderer
                 self._kept.append(menu.Renderer)
 
             def on_opened(_sender, _args) -> None:
@@ -633,6 +660,48 @@ def _clr() -> None:
     clr.AddReference("System.Windows.Forms")
 
 
+_SPEEDS = (
+    (0, "Unlimited"),
+    (50, "50 KB/s"),
+    (100, "100 KB/s"),
+    (250, "250 KB/s"),
+    (500, "500 KB/s"),
+    (1024, "1 MB/s"),
+    (5120, "5 MB/s"),
+)
+
+
+def _speed_menu(shell, direction: str, title: str):
+    from System.Windows.Forms import Padding, ToolStripMenuItem, ToolStripSeparator
+
+    parent = ToolStripMenuItem(title)
+    parent.Padding = Padding(12, 4, 16, 4)
+    parent.AutoSize = True
+    choices = []
+    for value, label in _SPEEDS:
+        item = ToolStripMenuItem(label)
+        item.Padding = Padding(12, 4, 16, 4)
+        item.AutoSize = True
+        item.Click += _tray_click(shell, f"{direction}:{value}")
+        parent.DropDownItems.Add(item)
+        choices.append((value, label, item))
+    parent.DropDownItems.Add(ToolStripSeparator())
+    other = ToolStripMenuItem("Other...")
+    other.Padding = Padding(12, 4, 16, 4)
+    other.AutoSize = True
+    other.Click += _tray_click(shell, "limits")
+    parent.DropDownItems.Add(other)
+    choices.append((-1, "Other...", other))
+    return parent, choices
+
+
+def _mark_speeds(choices, current: int) -> None:
+    known = {value for value, _label, _item in choices if value >= 0}
+    for value, label, item in choices:
+        picked = value == current or (value < 0 and current not in known)
+        item.Text = f"✓  {label}" if picked else f"     {label}"
+
+
 def _tray_click(shell, kind: str):
     def handle(_sender, _args) -> None:
         try:
@@ -671,7 +740,13 @@ def _run_tray(shell, kind: str) -> None:
         if engine is not None:
             threading.Thread(target=engine.set_all, args=(manual,), daemon=True).start()
         return
-    if kind not in ("add", "url", "create", "options"):
+    if kind.startswith(("down:", "up:")):
+        direction, _, raw = kind.partition(":")
+        engine = shell.engine
+        if engine is not None and raw.isdigit():
+            threading.Thread(target=engine.set_rate_limit, args=(direction, int(raw)), daemon=True).start()
+        return
+    if kind not in ("add", "url", "create", "options", "limits"):
         return
     shell.show()
     window = shell.window

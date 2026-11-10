@@ -109,8 +109,8 @@ button:disabled { cursor: default; opacity: 0.45; }
 }
 .top {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(140px, 240px) auto;
-  grid-template-areas: "brand gap search rates";
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) minmax(120px, 200px) auto;
+  grid-template-areas: "brand actions gap search rates";
   align-items: center;
   column-gap: 8px;
   height: 40px;
@@ -120,20 +120,13 @@ button:disabled { cursor: default; opacity: 0.45; }
   user-select: none;
 }
 .top.native {
-  grid-template-columns: auto minmax(0, 1fr) minmax(140px, 220px) auto auto;
-  grid-template-areas: "brand gap search rates controls";
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) minmax(110px, 180px) auto auto;
+  grid-template-areas: "brand actions gap search rates controls";
   padding-right: 0;
 }
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  align-items: center;
-  padding: 4px 8px;
-  background: var(--header);
-  border-bottom: 1px solid var(--border);
-}
-.brand { grid-area: brand; display: flex; align-items: center; gap: 8px; height: 100%; padding-right: 6px; }
+.actions { grid-area: actions; display: flex; align-items: center; height: 100%; min-width: 0; overflow-x: auto; }
+.actions .icon-btn, .actions .btn-danger.icon-btn { width: 28px; height: 28px; min-height: 28px; padding: 0; flex: none; }
+.brand { grid-area: brand; display: flex; align-items: center; gap: 8px; height: 100%; padding-right: 4px; }
 .title-gap { grid-area: gap; height: 100%; }
 .mark { color: var(--fg); display: block; flex: none; }
 .word { font-size: 15px; font-weight: 700; letter-spacing: 0; line-height: 1; }
@@ -197,6 +190,9 @@ button:disabled { cursor: default; opacity: 0.45; }
 .context-menu button:hover:not(:disabled) { background: var(--hover); }
 .context-menu button.danger { color: var(--danger); }
 .context-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
+.column-menu { min-width: 168px; }
+.column-menu .tick { width: 14px; text-align: center; flex: none; }
+.column-menu button:disabled { opacity: 1; cursor: default; }
 .search {
   grid-area: search;
   width: 100%;
@@ -270,11 +266,15 @@ button:disabled { cursor: default; opacity: 0.45; }
 aside {
   width: 220px;
   flex: none;
+  display: flex;
+  flex-direction: column;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
-  padding: 12px 8px;
-  overflow: auto;
+  overflow: hidden;
 }
+.nav-scroll { flex: 1; overflow: auto; padding: 12px 8px 8px; min-height: 0; }
+.nav-foot { flex: none; padding: 8px; border-top: 1px solid var(--border); }
+.nav-settings { justify-content: flex-start; gap: 8px; }
 .nav-label {
   margin: 14px 10px 6px;
   color: var(--fg-dim);
@@ -304,7 +304,8 @@ aside {
 .nav-btn.error strong { color: var(--danger); }
 
 .column { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--view); }
-.table-scroll { flex: 1; overflow: auto; }
+.table-scroll { flex: 1; overflow: auto; display: flex; flex-direction: column; min-height: 0; }
+.table-scroll > table { flex: none; }
 table { width: 100%; border-collapse: collapse; }
 th, td {
   padding: 0 10px;
@@ -487,7 +488,18 @@ input[type="checkbox"]:checked::after {
 .dialog-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
-.settings-layout { display: grid; grid-template-columns: 180px 1fr; gap: 16px; min-height: 420px; }
+.settings-layout { display: grid; grid-template-columns: 180px 1fr; gap: 16px; min-height: 0; }
+.dialog.settings-dialog {
+  height: 640px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-dialog > h2,
+.settings-dialog .dialog-actions { flex: none; }
+.settings-dialog .settings-layout { flex: 1; overflow: hidden; }
+.settings-dialog .settings-layout > * { min-height: 0; overflow: auto; }
 .settings-nav button {
   display: flex;
   align-items: center;
@@ -549,41 +561,28 @@ input[type="checkbox"]:checked::after {
 .lock { width: min(420px, 100%); }
 
 @media (max-width: 760px) {
-  .toolbar .icon-btn span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-  .toolbar .icon-btn { position: relative; }
   .workspace { flex-direction: column; }
   aside {
     width: auto;
-    display: flex;
-    gap: 4px;
+    flex-direction: row;
+    align-items: stretch;
     overflow: auto;
     border-right: 0;
     border-bottom: 1px solid var(--border);
-    padding: 8px;
   }
+  .nav-scroll { display: flex; gap: 4px; align-items: center; padding: 8px; }
+  .nav-foot { border-top: 0; border-left: 1px solid var(--border); display: flex; align-items: center; }
   .nav-label { display: none; }
   .nav-btn { width: auto; flex: none; }
   .detail { margin: 0; }
   .stats { grid-template-columns: 1fr 1fr; }
   .settings-layout, .grid-2, .feed { grid-template-columns: 1fr; }
-  .col-seeds, .col-peers, .col-eta, .col-ratio, .col-label { display: none; }
 }
 
 @media (max-width: 720px) {
   .dialog { padding: 14px; }
   .overlay { padding: 12px; align-items: flex-end; }
   .toast { left: 12px; right: 12px; width: auto; transform: none; }
-  .col-queue, .col-size, .col-down, .col-up { display: none; }
   .stats { grid-template-columns: 1fr; }
   .empty { padding: 28px 16px; }
 }
