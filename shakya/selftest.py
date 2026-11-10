@@ -143,6 +143,35 @@ def main() -> None:
             }
         )
         assert engine.snapshot()["stats"]["vpn"] == "off"
+        saved = engine.update_settings({"proxy_password": "s3cret-value", "ghost_enabled": True})
+        assert saved["proxy_password"] == ""
+        assert saved["proxy_has_password"] is True
+        assert saved["ghost_enabled"] is True
+        assert saved["vpn_enabled"] is False
+        assert engine.ghost_status()["state"] == "BLOCKED"
+        assert engine.ghost_status()["protected"] is False
+        assert any("holding transfers" in line for line in engine.logs())
+        held = engine.ghost_status()
+        assert held["kill_switch"] is True
+        assert held["ipv6"] == "blocked"
+        assert held["dns"] == "held"
+        assert "rss" in held["outside"]
+        assert "private_key" not in json.dumps(held)
+        listen = str(engine._ses.get_settings()["listen_interfaces"])
+        assert "0.0.0.0" not in listen
+        assert "[::]:" not in listen
+        assert engine.snapshot()["ghost"]["protected"] is False
+        assert "s3cret-value" not in "\n".join(engine.logs())
+        from .secrets import read_password
+        from .settings import settings_path
+
+        assert read_password() == "s3cret-value"
+        assert "s3cret-value" not in settings_path().read_text(encoding="utf-8")
+        engine.update_settings({"theme": "system"})
+        assert read_password() == "s3cret-value"
+        engine.update_settings({"ghost_enabled": False})
+        assert engine.ghost_status()["state"] == "DISABLED"
+        assert any("released transfers" in line for line in engine.logs())
         engine.remove(added_magnet["id"], delete_files=False)
         engine.shutdown()
         restored = Engine()

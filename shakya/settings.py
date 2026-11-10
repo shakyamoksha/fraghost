@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from .paths import data_dir
+from .secrets import read_password, write_password
 
 DEFAULTS: dict = {
     "save_path": "",
@@ -56,6 +57,8 @@ DEFAULTS: dict = {
     "theme": "system",
     "update_repo": "",
     "update_mode": "notify",
+    "ghost_enabled": False,
+    "ghost_endpoint_id": "",
 }
 
 _BOOL = {
@@ -73,6 +76,7 @@ _BOOL = {
     "anonymous_mode",
     "announce_to_all_trackers",
     "vpn_enabled",
+    "ghost_enabled",
     "proxy_peers",
     "proxy_hostnames",
     "scheduler_enabled",
@@ -144,16 +148,42 @@ def load_settings() -> dict:
                 pass
     if not merged["save_path"]:
         merged["save_path"] = default_download_dir()
+    plain = str(merged.get("proxy_password") or "")
+    if plain:
+        if write_password(plain):
+            merged["proxy_password"] = plain
+            _write_public(merged)
+        return merged
+    merged["proxy_password"] = read_password()
     return merged
 
 
 def save_settings(settings: dict) -> None:
+    password = str(settings.get("proxy_password") or "")
+    if password and not write_password(password):
+        _write_public(settings, keep_password=True)
+        return
+    if not password:
+        write_password("")
+    _write_public(settings, keep_password=False)
+
+
+def _write_public(settings: dict, *, keep_password: bool = False) -> None:
+    stored = {key: settings.get(key, DEFAULTS[key]) for key in DEFAULTS}
+    if not keep_password:
+        stored["proxy_password"] = ""
     path = settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(settings, indent=2).encode("utf-8")
     temporary = path.with_suffix(".json.tmp")
-    temporary.write_bytes(payload)
+    temporary.write_bytes(json.dumps(stored, indent=2).encode("utf-8"))
     temporary.replace(path)
+
+
+def public_settings(settings: dict) -> dict:
+    view = {key: settings.get(key, DEFAULTS[key]) for key in DEFAULTS}
+    view["proxy_has_password"] = bool(settings.get("proxy_password"))
+    view["proxy_password"] = ""
+    return view
 
 
 def merge_settings(current: dict, patch: dict) -> dict:
@@ -237,6 +267,13 @@ def _coerce(key: str, value, strict: bool):
                 raise ValueError("Theme must be system, light, or dark")
             return "system"
         return value
+    if key == "ghost_endpoint_id":
+        text = str(value or "").strip().lower()
+        if text and not re.fullmatch(r"[0-9a-f]{32}", text):
+            if strict:
+                raise ValueError("Unknown Ghost Mode endpoint")
+            return ""
+        return text
     if key == "proxy_type":
         allowed = ("none", "socks4", "socks5", "socks5_pw", "http", "http_pw")
         if value not in allowed:

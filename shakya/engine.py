@@ -17,7 +17,11 @@ import libtorrent as lt
 from . import __version__
 from .build_info import BUILD
 from .paths import data_dir
-from .settings import load_settings, merge_settings, save_settings, schedule_mode
+from .ghost import GhostController, route_changed, route_token
+from .ghost_identity import public_key
+from .ghost_registry import add as add_endpoint
+from .ghost_registry import list_public, remove as remove_endpoint
+from .settings import load_settings, merge_settings, public_settings, save_settings, schedule_mode
 from .update import updates
 
 DHT_ROUTERS = (
@@ -122,6 +126,9 @@ class Engine:
         self.settings = load_settings()
         self._lock = threading.RLock()
         self._logs: deque[str] = deque(maxlen=400)
+        self._ghost = GhostController(on_change=self._on_ghost_state)
+        if self.settings.get("ghost_enabled"):
+            self._activate_ghost()
         self._history: deque[dict] = deque(maxlen=120)
         self._handles: dict[str, object] = {}
         self._records: dict[str, dict] = {}
@@ -139,6 +146,8 @@ class Engine:
         self._next_update = time.time() + 20
         self._next_resume = time.time() + 15
         self._next_sample = time.time() + 1
+        self._next_route = time.time() + 20
+        self._route_token = ""
         self._load_library()
 
     def start(self) -> None:
@@ -172,6 +181,7 @@ class Engine:
         self._log(f"fraghost {__version__} is listening")
 
     def shutdown(self) -> None:
+        self._ghost.stop()
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
@@ -511,16 +521,130 @@ class Engine:
         return result
 
     def update_settings(self, patch: dict) -> dict:
+        if not isinstance(patch, dict):
+            raise ValueError("Settings must be an object")
         with self._lock:
+            patch = dict(patch)
+            clear_password = bool(patch.pop("clear_proxy_password", False))
+            incoming = patch.pop("proxy_password", None)
+            if incoming is not None and not str(incoming):
+                incoming = None
+            before_ghost = bool(self.settings.get("ghost_enabled"))
+            before_endpoint = str(self.settings.get("ghost_endpoint_id") or "")
             self.settings = merge_settings(self.settings, patch)
+            if clear_password:
+                self.settings["proxy_password"] = ""
+            elif incoming is not None:
+                self.settings["proxy_password"] = str(incoming)
             save_settings(self.settings)
+            ghost_changed = bool(self.settings.get("ghost_enabled")) != before_ghost or str(
+                self.settings.get("ghost_endpoint_id") or ""
+            ) != before_endpoint
+            if ghost_changed and ("ghost_enabled" in patch or "ghost_endpoint_id" in patch):
+                status = self._activate_ghost()
+                self._log(f"Ghost Mode {status['state']}")
             if self._ses:
                 self._apply_pack()
                 self._apply_proxy()
                 self._apply_network_features()
                 self._apply_swarm_flags()
                 self._sync_schedule(force=True)
-            return self.settings
+            return public_settings(self.settings)
+
+    def ghost_status(self) -> dict:
+        with self._lock:
+            return self._ghost_view()
+
+    def add_ghost_endpoint(self, body: dict) -> dict:
+        created = add_endpoint(body or {})
+        with self._lock:
+            self.settings["ghost_endpoint_id"] = created["id"]
+            save_settings(self.settings)
+            if self.settings.get("ghost_enabled"):
+                status = self._activate_ghost()
+                self._log(f"Ghost Mode {status['state']}")
+                self._apply_session_network()
+        return self.ghost_status()
+
+    def remove_ghost_endpoint(self, endpoint_id: str) -> dict:
+        remove_endpoint(endpoint_id)
+        with self._lock:
+            if self.settings.get("ghost_endpoint_id") == endpoint_id:
+                self.settings["ghost_endpoint_id"] = ""
+                save_settings(self.settings)
+                if self.settings.get("ghost_enabled"):
+                    status = self._activate_ghost()
+                    self._log(f"Ghost Mode {status['state']}")
+            self._apply_session_network()
+        return self.ghost_status()
+
+    def _activate_ghost(self) -> dict:
+        return self._ghost.apply_enabled(bool(self.settings.get("ghost_enabled")), self._ghost_candidates())
+
+    def _ghost_candidates(self) -> list[dict]:
+        if not self.settings.get("ghost_enabled"):
+            return []
+        rows = list_public()
+        selected = str(self.settings.get("ghost_endpoint_id") or "")
+        rows.sort(key=lambda item: (item["id"] != selected, item.get("name") or ""))
+        return rows
+
+    def _on_ghost_state(self, status: dict) -> None:
+        with self._lock:
+            if not self._started:
+                return
+            self._log(f"Ghost Mode {status['state']}")
+            self._apply_session_network()
+
+    def _ghost_view(self) -> dict:
+        status = self._ghost.status()
+        create = bool(self.settings.get("ghost_enabled")) or bool(list_public())
+        status["public_key"] = public_key(create=create)
+        health = {item["id"]: item for item in self._ghost.health()}
+        endpoints = []
+        for row in list_public():
+            item = dict(row)
+            probe = health.get(item["id"], {})
+            item["latency_ms"] = probe.get("latency_ms")
+            item["score"] = probe.get("score", 0)
+            item["reachable"] = probe.get("ok")
+            endpoints.append(item)
+        status["endpoints"] = endpoints
+        status["selected"] = str(self.settings.get("ghost_endpoint_id") or "")
+        holding = bool(status.get("enabled")) and not status.get("protected")
+        status["kill_switch"] = bool(status.get("enabled"))
+        status["ipv6"] = "blocked" if holding else "open"
+        status["dns"] = "held" if holding else "system"
+        status["outside"] = ["rss", "updates", "other programs"]
+        return status
+
+    def _watch_route(self) -> None:
+        if not self.settings.get("ghost_enabled"):
+            self._route_token = ""
+            return
+        current = route_token()
+        previous = self._route_token
+        self._route_token = current
+        if route_changed(previous, current):
+            self._log("Ghost Mode saw a network change and is reconnecting.")
+            status = self._activate_ghost()
+            self._log(f"Ghost Mode {status['state']}")
+            self._apply_session_network()
+
+    def _ghost_holding(self) -> bool:
+        status = self._ghost.status()
+        return bool(status.get("enabled")) and not status.get("protected")
+
+    def _contained(self) -> bool:
+        return self._tunneling() or self._ghost_holding()
+
+    def _apply_session_network(self) -> None:
+        if not self._ses:
+            return
+        self._apply_pack()
+        self._apply_proxy()
+        self._apply_network_features()
+        self._apply_swarm_flags()
 
     def import_blocklist(self, path: str) -> dict:
         path = os.path.abspath(path)
@@ -613,6 +737,9 @@ class Engine:
                     if now >= self._next_rss:
                         self._next_rss = now + 900
                         refresh = True
+                    if now >= self._next_route:
+                        self._next_route = now + 20
+                        self._watch_route()
                     if now >= self._next_update:
                         self._next_update = now + 60
                         update_due = True
@@ -940,12 +1067,12 @@ class Engine:
             "dht_nodes": int(status.dht_nodes),
             "has_incoming": bool(status.has_incoming_connections),
             "listen_port": int(self._ses.listen_port() or 0),
-            "external_ip": "" if self._tunneling() else self._external_ip,
+            "external_ip": "" if self._contained() else self._external_ip,
             "total_downloaded": 0,
             "total_uploaded": 0,
             "schedule": self._sched_mode,
             "scheduler_enabled": bool(self.settings.get("scheduler_enabled")),
-            "dht": bool(self.settings.get("dht")) and not self._tunneling(),
+            "dht": bool(self.settings.get("dht")) and not self._contained(),
             "vpn": vpn_state,
             "vpn_label": vpn_label,
         }
@@ -977,6 +1104,7 @@ class Engine:
             "labels": labels,
             "detail": detail,
             "app": {"name": "fraghost", "version": __version__, "build": int(BUILD), "engine": str(lt.version)},
+            "ghost": self._ghost_view(),
         }
 
     def _summary(self, handle, meta: dict, status) -> dict:
@@ -1267,7 +1395,7 @@ class Engine:
             | lt.torrent_flags.update_subscribe
             | lt.torrent_flags.apply_ip_filter
         )
-        tunnel = self._tunneling()
+        tunnel = self._contained()
         if not self.settings.get("pex", True):
             flags |= lt.torrent_flags.disable_pex
         if tunnel or not self.settings.get("dht", True):
@@ -1286,7 +1414,7 @@ class Engine:
         for handle in self._handles.values():
             if not handle.is_valid():
                 continue
-            tunnel = self._tunneling()
+            tunnel = self._contained()
             self._toggle(handle, lt.torrent_flags.disable_pex, not self.settings.get("pex", True))
             self._toggle(handle, lt.torrent_flags.disable_dht, tunnel or not self.settings.get("dht", True))
             self._toggle(handle, lt.torrent_flags.disable_lsd, tunnel or not self.settings.get("lsd", True))
@@ -1299,8 +1427,8 @@ class Engine:
 
     def _pack(self) -> dict:
         port = 0 if self.settings.get("random_port") else int(self.settings.get("listen_port") or 6881)
-        tunnel = self._tunneling()
-        # Local bind while the tunnel is on, so peers cannot connect to the real address.
+        tunnel = self._contained()
+        # Local bind while Ghost Mode or the proxy is holding traffic.
         listen = f"127.0.0.1:{port},[::1]:{port}" if tunnel else f"0.0.0.0:{port},[::]:{port}"
         encryption = self.settings.get("encryption") or "enabled"
         if tunnel and encryption == "disabled":
@@ -1362,7 +1490,7 @@ class Engine:
 
     def _apply_pack(self, pack: dict | None = None) -> None:
         pack = pack or self._pack()
-        if self._tunneling():
+        if self._contained():
             # Close public sockets before the listen address changes, or uTP
             # opens one last socket on every interface.
             self._apply_settings_dict(
@@ -1415,7 +1543,9 @@ class Engine:
         return "on", f"{host}:{port}"
 
     def _apply_proxy(self) -> None:
-        state, label = self._vpn_status()
+        vpn_state, label = self._vpn_status()
+        holding = self._ghost_holding()
+        state = "blocked" if holding else vpn_state
         try:
             proxy = lt.proxy_type_t.proxy_settings()
             if state == "on":
@@ -1446,22 +1576,31 @@ class Engine:
         except Exception as exc:
             self._log(f"Proxy was not applied: {exc}")
             return
-        note = f"{state}:{label}"
+        note = f"hold={int(holding)};{vpn_state}:{label}"
         if note == self._vpn_note:
             return
         previous = self._vpn_note
         self._vpn_note = note
         if previous is None:
             return
-        if state == "off":
+        previous_hold = previous.startswith("hold=1")
+        previous_vpn = previous.split(";", 1)[-1]
+        if holding and not previous_hold:
+            self._log("Ghost Mode is holding transfers until a verified tunnel exists.")
+        elif previous_hold and not holding:
+            self._log("Ghost Mode released transfers.")
+        vpn_note = f"{vpn_state}:{label}"
+        if previous_vpn == vpn_note:
+            return
+        if vpn_state == "off":
             self._log("VPN off")
-        elif state == "blocked":
+        elif vpn_state == "blocked":
             self._log("VPN is on with no server. Transfers stay blocked.")
         else:
             self._log(f"VPN on via {label}")
 
     def _apply_network_features(self) -> None:
-        tunnel = self._tunneling()
+        tunnel = self._contained()
         if self.settings.get("dht") and not tunnel:
             try:
                 self._ses.start_dht()

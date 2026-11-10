@@ -4,7 +4,7 @@ import { hasDesktop, notifyUpdate, pickFolder, pickSave, pickTorrents, whenDeskt
 import { Glyph, type GlyphName } from "./icons";
 import { formatBytes, formatEta, formatPercent, formatRatio, formatSpeed, stateLabel, swarm, toBase64 } from "./format";
 import { Mark } from "./Mark";
-import type { Preview, Settings, Snapshot, SortKey, Torrent, TorrentFile, UpdateStatus } from "./types";
+import type { GhostStatus, Preview, Settings, Snapshot, SortKey, Torrent, TorrentFile, UpdateStatus } from "./types";
 import "./styles.css";
 
 type FileDialog = {
@@ -705,6 +705,7 @@ export function App() {
           {stats?.has_incoming ? " · incoming" : ""}
           {stats?.scheduler_enabled && stats.schedule === "L" ? " · scheduler limited" : ""}
           {stats?.scheduler_enabled && stats.schedule === "S" ? " · scheduler stopped" : ""}
+          {snapshot?.ghost && snapshot.ghost.state !== "DISABLED" ? ` · Ghost Mode ${ghostLabel(snapshot.ghost.state)}` : ""}
         </span>
         <span>
           <b>{torrents.length}</b> torrents
@@ -791,6 +792,8 @@ export function App() {
       {dialog?.kind === "settings" && settings && (
         <SettingsDialog
           settings={settings}
+          ghost={snapshot?.ghost ?? null}
+          onRefresh={async () => setSnapshot(await api.state(focusRef.current))}
           update={update}
           updating={updating}
           onCheck={checkForUpdate}
@@ -1383,6 +1386,8 @@ function MenuItem({ glyph, label, disabled, danger, onClick }: { glyph: GlyphNam
 
 function SettingsDialog({
   settings,
+  ghost,
+  onRefresh,
   update,
   updating,
   onClose,
@@ -1391,6 +1396,8 @@ function SettingsDialog({
   onInstall,
 }: {
   settings: Settings;
+  ghost: GhostStatus | null;
+  onRefresh: () => Promise<void>;
   update: UpdateStatus | null;
   updating: boolean;
   onClose: () => void;
@@ -1401,6 +1408,12 @@ function SettingsDialog({
   const [draft, setDraft] = useState(settings);
   const [section, setSection] = useState<(typeof SETTING_TABS)[number]>("Downloads");
   const [error, setError] = useState("");
+  const [endpointName, setEndpointName] = useState("");
+  const [endpointHost, setEndpointHost] = useState("");
+  const [endpointPort, setEndpointPort] = useState(51820);
+  const [endpointKey, setEndpointKey] = useState("");
+  const [endpointCountry, setEndpointCountry] = useState("");
+  const [endpointPsk, setEndpointPsk] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const paint = useRef<string | null>(null);
   useEffect(() => {
@@ -1481,6 +1494,64 @@ function SettingsDialog({
                 <label className="check"><input type="checkbox" checked={draft.pex} onChange={(event) => setDraft({ ...draft, pex: event.target.checked })} /> Peer exchange</label>
                 <label className="check"><input type="checkbox" checked={draft.lsd} onChange={(event) => setDraft({ ...draft, lsd: event.target.checked })} /> Local peer discovery</label>
                 <label className="check"><input type="checkbox" checked={draft.utp} onChange={(event) => setDraft({ ...draft, utp: event.target.checked })} /> µTP</label>
+                <label className="check"><input type="checkbox" checked={draft.ghost_enabled} onChange={(event) => setDraft({ ...draft, ghost_enabled: event.target.checked })} /> Ghost Mode</label>
+                <p className="muted">Ghost Mode is separate from the proxy switch. It only talks to WireGuard endpoints you add here, and it never includes a public server. If the selected one fails, fraghost tries your other saved endpoints and retries. While it is on, BitTorrent stays paused. A verified handshake still does not put BitTorrent inside the tunnel, so it is not protected. UDP is not tunneled. Other programs stay on your normal connection.</p>
+                <p className="muted">{ghostText(draft.ghost_enabled, ghost)}</p>
+                {ghost?.kill_switch && <p className="muted">The kill switch is holding BitTorrent. Public IPv6 listen is blocked. Torrent name lookup stays on the fail-closed path. RSS, updates, and other programs stay outside.</p>}
+                <label className="field"><span>Local public key</span><input readOnly value={ghost?.public_key || "Created on this computer when you add an endpoint. It is not uploaded."} spellCheck={false} /></label>
+                {(ghost?.endpoints || []).map((endpoint) => (
+                  <div key={endpoint.id} className="check" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="radio"
+                      name="ghost-endpoint"
+                      checked={(draft.ghost_endpoint_id || "") === endpoint.id}
+                      onChange={() => setDraft({ ...draft, ghost_endpoint_id: endpoint.id })}
+                    />
+                    <span style={{ flex: 1 }}>{endpoint.name} · {endpoint.host}:{endpoint.port}{endpointNote(endpoint)}</span>
+                    <button
+                      className="btn-ghost"
+                      type="button"
+                      onClick={() => {
+                        void api.removeGhostEndpoint(endpoint.id).then(() => {
+                          if ((draft.ghost_endpoint_id || "") === endpoint.id) setDraft({ ...draft, ghost_endpoint_id: "" });
+                          return onRefresh();
+                        }).catch((reason: Error) => setError(reason.message));
+                      }}
+                    >Remove</button>
+                  </div>
+                ))}
+                {(ghost?.endpoints || []).length === 0 && <p className="muted">No trusted endpoint yet. Nothing is contacted until you add one and turn Ghost Mode on.</p>}
+                <div className="grid-2">
+                  <label className="field"><span>Endpoint name</span><input value={endpointName} onChange={(event) => setEndpointName(event.target.value)} /></label>
+                  <label className="field"><span>Country label</span><input value={endpointCountry} onChange={(event) => setEndpointCountry(event.target.value)} /></label>
+                  <label className="field"><span>Host</span><input value={endpointHost} onChange={(event) => setEndpointHost(event.target.value)} spellCheck={false} /></label>
+                  <label className="field"><span>Port</span><input type="number" value={endpointPort} onChange={(event) => setEndpointPort(Number(event.target.value))} /></label>
+                  <label className="field"><span>Server public key</span><input value={endpointKey} onChange={(event) => setEndpointKey(event.target.value)} spellCheck={false} autoComplete="off" /></label>
+                  <label className="field"><span>Preshared key</span><input type="password" value={endpointPsk} onChange={(event) => setEndpointPsk(event.target.value)} autoComplete="new-password" /></label>
+                </div>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    void api.addGhostEndpoint({
+                      name: endpointName,
+                      host: endpointHost,
+                      port: endpointPort,
+                      public_key: endpointKey,
+                      country: endpointCountry,
+                      preshared_key: endpointPsk,
+                    }).then((next) => {
+                      const selected = next.selected || next.endpoints?.slice(-1)[0]?.id || "";
+                      if (selected) setDraft({ ...draft, ghost_endpoint_id: selected });
+                      setEndpointName("");
+                      setEndpointHost("");
+                      setEndpointKey("");
+                      setEndpointCountry("");
+                      setEndpointPsk("");
+                      return onRefresh();
+                    }).catch((reason: Error) => setError(reason.message));
+                  }}
+                >Add endpoint</button>
                 <label className="check"><input type="checkbox" checked={draft.vpn_enabled} onChange={(event) => setDraft({ ...draft, vpn_enabled: event.target.checked })} /> VPN</label>
                 <p className="muted">VPN sends only BitTorrent traffic through the server below and stops direct peers, DHT, µTP, and port mapping. Other programs stay on your normal connection. A public free relay can see the transfers it carries, so use the SOCKS or HTTP proxy from a VPN you trust.</p>
                 <label className="field"><span>VPN server</span>
@@ -1497,7 +1568,7 @@ function SettingsDialog({
                   <label className="field"><span>Host</span><input value={draft.proxy_host} onChange={(event) => setDraft({ ...draft, proxy_host: event.target.value })} /></label>
                   <label className="field"><span>Port</span><input type="number" value={draft.proxy_port} onChange={(event) => setDraft({ ...draft, proxy_port: Number(event.target.value) })} /></label>
                   <label className="field"><span>Username</span><input value={draft.proxy_username} onChange={(event) => setDraft({ ...draft, proxy_username: event.target.value })} /></label>
-                  <label className="field"><span>Password</span><input type="password" value={draft.proxy_password} onChange={(event) => setDraft({ ...draft, proxy_password: event.target.value })} /></label>
+                  <label className="field"><span>Password</span><input type="password" value={draft.proxy_password} onChange={(event) => setDraft({ ...draft, proxy_password: event.target.value })} placeholder={settings.proxy_has_password ? "Saved password" : ""} autoComplete="new-password" /></label>
                 </div>
               </>
             )}
@@ -1643,6 +1714,33 @@ function SettingsDialog({
       rss_feeds: draft.rss_feeds.map((feed, feedIndex) => (feedIndex === index ? { ...feed, ...patch } : feed)),
     });
   }
+}
+
+function ghostLabel(state: GhostStatus["state"]): string {
+  if (state === "INITIALIZING") return "initializing";
+  if (state === "DISCOVERING") return "searching";
+  if (state === "CONNECTING") return "connecting";
+  if (state === "VERIFYING") return "verifying";
+  if (state === "DEGRADED") return "handshake only";
+  if (state === "BLOCKED") return "blocked";
+  if (state === "ERROR") return "error";
+  if (state === "PROTECTED") return "not verified";
+  return "off";
+}
+
+function ghostText(enabled: boolean, ghost: GhostStatus | null): string {
+  if (!enabled) return "Ghost Mode is off.";
+  if (!ghost || ghost.state === "DISABLED") return "Save to apply Ghost Mode. It will not connect without a trusted endpoint.";
+  if (ghost.protected) return "Protection has not been verified.";
+  if (ghost.state === "ERROR" && ghost.next_retry) return `${ghost.reason} A saved endpoint will be tried again.`;
+  return ghost.reason || `Ghost Mode is ${ghostLabel(ghost.state)}.`;
+}
+
+function endpointNote(endpoint: { country?: string; has_preshared?: boolean; latency_ms?: number | null; reachable?: boolean }): string {
+  const bits = [endpoint.country, endpoint.has_preshared ? "preshared key saved" : ""];
+  if (typeof endpoint.latency_ms === "number") bits.push(`${endpoint.latency_ms} ms`);
+  else if (endpoint.reachable === false) bits.push("unreachable");
+  return bits.filter(Boolean).length ? ` · ${bits.filter(Boolean).join(" · ")}` : "";
 }
 
 function updateLine(mode: Settings["update_mode"], update: UpdateStatus | null): string {

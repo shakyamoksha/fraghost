@@ -122,11 +122,14 @@ export interface Settings {
   seed_ratio: number;
   seed_minutes: number;
   vpn_enabled: boolean;
+  ghost_enabled: boolean;
+  ghost_endpoint_id: string;
   proxy_type: "none" | "socks4" | "socks5" | "socks5_pw" | "http" | "http_pw";
   proxy_host: string;
   proxy_port: number;
   proxy_username: string;
   proxy_password: string;
+  proxy_has_password?: boolean;
   proxy_peers: boolean;
   proxy_hostnames: boolean;
   web_password: string;
@@ -170,6 +173,37 @@ export interface Stats {
   vpn_label: string;
 }
 
+export interface GhostEndpoint {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  public_key: string;
+  country: string;
+  has_preshared: boolean;
+  latency_ms?: number | null;
+  score?: number;
+  reachable?: boolean;
+}
+
+export interface GhostStatus {
+  enabled: boolean;
+  state: "DISABLED" | "INITIALIZING" | "DISCOVERING" | "CONNECTING" | "VERIFYING" | "PROTECTED" | "DEGRADED" | "BLOCKED" | "ERROR";
+  reason: string;
+  since: number;
+  protected: boolean;
+  endpoint: string;
+  country: string;
+  public_key?: string;
+  selected?: string;
+  endpoints?: GhostEndpoint[];
+  next_retry?: number;
+  kill_switch?: boolean;
+  ipv6?: "blocked" | "open";
+  dns?: "held" | "system";
+  outside?: string[];
+}
+
 export interface Snapshot {
   torrents: Torrent[];
   stats: Stats;
@@ -177,6 +211,7 @@ export interface Snapshot {
   labels: string[];
   detail: TorrentDetail | null;
   app: { name: string; version: string; build: number; engine: string };
+  ghost?: GhostStatus;
 }
 
 export interface Preview {

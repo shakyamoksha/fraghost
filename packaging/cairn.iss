@@ -31,3 +31,43 @@ Name: "{autodesktop}\fraghost"; Filename: "{app}\pythonw.exe"; Parameters: "-m s
 
 [Run]
 Filename: "{app}\pythonw.exe"; Parameters: "-m shakya"; WorkingDir: "{app}"; Flags: nowait postinstall
+
+[Code]
+function FirewallCommand(const Params: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  if IsAdminInstallMode then
+    Result := Exec(ExpandConstant('{sys}\netsh.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+  else
+    Result := ShellExec('runas', ExpandConstant('{sys}\netsh.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure AddFirewallRule;
+var
+  ProgramPath, Saved: String;
+begin
+  ProgramPath := ExpandConstant('{app}\pythonw.exe');
+  if RegQueryStringValue(HKCU, 'Software\fraghost', 'FirewallProgram', Saved) and (Saved = ProgramPath) then
+    Exit;
+  { One administrator prompt at install, the same moment BitTorrent writes its firewall exception. }
+  if not FirewallCommand('advfirewall firewall add rule name="fraghost" dir=in action=allow program="' + ProgramPath + '" enable=yes profile=private,public,domain') then
+    Exit;
+  RegWriteStringValue(HKCU, 'Software\fraghost', 'FirewallProgram', ProgramPath);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    AddFirewallRule;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    FirewallCommand('advfirewall firewall delete rule name="fraghost"');
+    RegDeleteValue(HKCU, 'Software\fraghost', 'FirewallProgram');
+    DeleteFile(ExpandConstant('{userappdata}\Shakya\ghost-endpoints.json'));
+  end;
+end;

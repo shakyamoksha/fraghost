@@ -1,4 +1,4 @@
-import type { Preview, Settings, Snapshot, Torrent, UpdateStatus } from "./types";
+import type { GhostStatus, Preview, Settings, Snapshot, Torrent, UpdateStatus } from "./types";
 
 let password = "";
 
@@ -29,6 +29,10 @@ export const api = {
   state: (detail: string | null) =>
     request<Snapshot>(`/api/state${detail ? `?detail=${encodeURIComponent(detail)}` : ""}`),
   settings: () => request<Settings>("/api/settings"),
+  ghost: () => request<GhostStatus>("/api/ghost"),
+  addGhostEndpoint: (body: { name: string; host: string; port: number; public_key: string; country: string; preshared_key: string }) =>
+    request<GhostStatus>("/api/ghost/endpoints", { method: "POST", body: JSON.stringify(body) }),
+  removeGhostEndpoint: (id: string) => request<GhostStatus>(`/api/ghost/endpoints?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
   saveSettings: (settings: Settings) => request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
   logs: () => request<{ lines: string[] }>("/api/logs"),
   updateStatus: () => request<UpdateStatus>("/api/update"),

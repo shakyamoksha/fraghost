@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
+from .settings import public_settings
 from .update import updates
 
 MAX_BODY = 64 * 1024 * 1024
@@ -116,10 +117,19 @@ def _make_handler(engine, dist_dir: Path | None):
                 self._send_json(200, engine.snapshot(detail))
                 return
             if parts == ["settings"] and method == "GET":
-                self._send_json(200, engine.settings)
+                self._send_json(200, public_settings(engine.settings))
                 return
             if parts == ["settings"] and method == "PUT":
                 self._send_json(200, engine.update_settings(self._body()))
+                return
+            if parts == ["ghost"] and method == "GET":
+                self._send_json(200, engine.ghost_status())
+                return
+            if parts == ["ghost", "endpoints"] and method == "POST":
+                self._send_json(200, engine.add_ghost_endpoint(self._body()))
+                return
+            if parts == ["ghost", "endpoints"] and method == "DELETE":
+                self._send_json(200, engine.remove_ghost_endpoint((query.get("id") or [""])[0]))
                 return
             if parts == ["update"] and method == "GET":
                 force = (query.get("refresh") or ["0"])[0] in ("1", "true")

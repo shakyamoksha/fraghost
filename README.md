@@ -15,6 +15,7 @@ The interface is licensed under GPL-3.0-or-later. Transfers are handled by [libt
 - DHT, peer exchange, local peer discovery, µTP, protocol encryption
 - UPnP and NAT-PMP
 - SOCKS and HTTP proxy
+- Ghost Mode holds BitTorrent until a WireGuard endpoint you add yourself answers a handshake. There is no bundled VPN server, and a handshake does not put transfers inside the tunnel
 - Labels, watch folder, and move-on-complete
 - RSS feeds with title filters
 - IP blocklist import (eMule / PeerGuardian style text, including `.gz`)
